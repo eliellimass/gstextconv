@@ -1,0 +1,155 @@
+name: build
+
+on:
+  push:
+    branches: [main, "devin/**"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  cli-windows-x64:
+    name: CLI · Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        shell: cmd
+        run: >-
+          cmake -S . -B build -A x64
+          -DGSTEXTCONV_BUILD_CLI=ON
+          -DGSTEXTCONV_BUILD_PYTHON=OFF
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: cmd
+        run: cmake --build build --config Release -j
+
+      - name: Verify
+        shell: cmd
+        run: build\Release\gstextconv.exe --info
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gstextconv-cli-windows-x64
+          path: build/Release/gstextconv.exe
+          if-no-files-found: error
+
+  cli-android-aarch64:
+    name: CLI · Android aarch64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
+          -DANDROID_ABI=arm64-v8a
+          -DANDROID_PLATFORM=android-26
+          -DGSTEXTCONV_BUILD_CLI=ON
+          -DGSTEXTCONV_BUILD_PYTHON=OFF
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gstextconv-cli-android-aarch64
+          path: build/gstextconv
+          if-no-files-found: error
+
+  wheel-windows-x64:
+    name: Wheel · Windows x64 (cp313)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build tools
+        shell: cmd
+        run: python -m pip install --upgrade pip build
+
+      - name: Build wheel
+        shell: cmd
+        run: python -m build --wheel --outdir dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gstextconv-wheel-windows-x64
+          path: dist/*.whl
+          if-no-files-found: error
+
+  wheel-android-aarch64:
+    name: Wheel · Android aarch64 (cp313)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build Android wheel with cibuildwheel
+        uses: pypa/cibuildwheel@v3.4.1
+        with:
+          only: cp313-android_arm64_v8a
+        env:
+          CIBW_BUILD_FRONTEND: "build"
+          CIBW_ENVIRONMENT: ANDROID_API_LEVEL=26
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gstextconv-wheel-android-aarch64
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs:
+      - cli-windows-x64
+      - cli-android-aarch64
+      - wheel-windows-x64
+      - wheel-android-aarch64
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          tag="${GITHUB_REF_NAME}"
+          cp "artifacts/gstextconv-cli-windows-x64/gstextconv.exe" \
+             "release-assets/gstextconv-${tag}-windows-x64.exe"
+          cp "artifacts/gstextconv-cli-android-aarch64/gstextconv" \
+             "release-assets/gstextconv-${tag}-android-aarch64"
+          chmod +x "release-assets/gstextconv-${tag}-android-aarch64"
+          cp artifacts/gstextconv-wheel-windows-x64/*.whl release-assets/
+          cp artifacts/gstextconv-wheel-android-aarch64/*.whl release-assets/
+          (cd release-assets && sha256sum * > SHA256SUMS.txt)
+          ls -la release-assets
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/*
+

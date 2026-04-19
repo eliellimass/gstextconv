@@ -1,0 +1,45 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "gstextconv"
+version = "1.0.0"
+description = "Texture converter for Giants Engine / Farming Simulator (GS2D/.ast) with embedded astcenc."
+readme = "cli.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [
+    { name = "SnowBit64" },
+]
+keywords = ["gs2d", "ast", "astc", "astcenc", "farming-simulator", "texture"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics",
+]
+
+[project.urls]
+Homepage = "https://github.com/snowbit64/gstextconv"
+Issues = "https://github.com/snowbit64/gstextconv/issues"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+cmake.version = ">=3.20"
+cmake.build-type = "Release"
+wheel.packages = ["python/gstextconv"]
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+GSTEXTCONV_BUILD_CLI = "OFF"
+GSTEXTCONV_BUILD_PYTHON = "ON"
+GSTEXTCONV_BUILD_TESTS = "OFF"
+
+[tool.cibuildwheel]
+build = ["cp313-win_amd64", "cp313-android_arm64_v8a"]
+build-frontend = "build"
+test-skip = "*"

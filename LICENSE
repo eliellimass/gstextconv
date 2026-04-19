@@ -1,0 +1,121 @@
+gstextconv License
+==================
+
+Copyright (c) 2026 snowbit64 and contributors.
+
+This license applies to the source code of the gstextconv project (the
+"Software"): everything under this repository that is not listed under
+"Third-party components" below.
+
+
+1. Grant of license for the source code
+---------------------------------------
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this Software and associated documentation files, to deal in the
+Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+
+2. Scope — the GS2D file format is NOT covered
+----------------------------------------------
+
+The source code of gstextconv is open source under the terms in Section 1.
+The GS2D container (files with extensions such as ".gs2d" or ".ast" used by
+FS20, FS23 and related titles), and the game assets distributed
+in that format, are proprietary works of their respective owners and are
+NOT licensed under this document.
+
+The permissions granted in Section 1 cover only the Software itself. They
+do NOT, and cannot, grant:
+
+  (a) any right, title, license or interest in or to the GS2D file format,
+      its specification, trademarks, service marks, logos, or trade dress;
+
+  (b) any right to the texture data, images, meshes, audio, or any other
+      assets that may be stored inside GS2D files or any other container
+      consumed or produced by this Software;
+
+  (c) any right to reverse engineer, modify, distribute, or use such
+      assets, format specifications, or associated intellectual property
+      of any third party.
+
+The Software is released strictly for the purposes of interoperability and
+independent study of file format structure, to the extent permitted by
+applicable law in the user's jurisdiction.
+
+
+3. User responsibility
+----------------------
+
+You are solely responsible for ensuring that your use of gstextconv
+complies with:
+
+  (a) the terms of service, end-user license agreements and acceptable-use
+      policies of any game, application or service whose files you are
+      reading, writing or inspecting with this Software;
+
+  (b) the copyright and related rights of the authors and publishers of
+      any asset, texture, or other content you process; and
+
+  (c) all applicable laws and regulations — including, without limitation,
+      laws concerning copyright, anti-circumvention, trade secrets, and
+      computer access — in every jurisdiction in which you use the
+      Software.
+
+Use of this Software to engage in cheating, reverse engineering of
+encrypted content, redistribution of copyrighted assets, or any other
+activity prohibited by the rights holders of the original software is
+neither the intent of this project nor permitted by this license.
+
+
+4. No affiliation
+-----------------
+
+This project is an independent, fan-driven effort. It is not affiliated
+with, endorsed by, or sponsored by Garena Online Private Limited,
+111dots Studio, Sea Limited, or any other company involved in the
+development or publishing of Free Fire or any other game that uses the
+GS2D format. All product names, logos, brands, and trademarks are the
+property of their respective owners and are used for identification
+purposes only.
+
+
+5. Third-party components
+-------------------------
+
+This repository vendors or depends on third-party code, each distributed
+under its own license. Their terms apply in addition to, and prevail for,
+those files:
+
+  * astc-encoder — Apache License 2.0, Arm Limited and contributors
+    (see third_party/astc-encoder).
+  * stb_image / stb_image_write — MIT / Public Domain dual license,
+    Sean Barrett and contributors.
+  * miniz — MIT License, Rich Geldreich and contributors.
+  * pybind11 — BSD 3-Clause License, Wenzel Jakob and contributors.
+
+If a file, subdirectory, or dependency includes its own license header or
+LICENSE file, that license takes precedence for that file or component.
+
+
+6. Severability
+---------------
+
+If any provision of this license is held to be unenforceable or invalid,
+that provision shall be modified to the minimum extent necessary to make
+it enforceable, and the remaining provisions shall remain in full force
+and effect.
