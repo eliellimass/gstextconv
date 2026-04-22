@@ -122,9 +122,9 @@ void print_decoder_help() {
         "                                      from -o extension or png)\n"
         "  -c, --channels <swizzle>            channel selection, e.g. 'rgba', 'r0b1'\n"
         "  -i, --mip-index <n>                 emit a specific mip level (default: 0)\n"
-        "  -M, --all-mips                      emit every mip level (uses --pattern)\n"
-        "  -l, --layer-index <n>               emit a specific array layer (default: 0)\n"
-        "  -L, --all-layers                    emit every array layer (uses --pattern)\n"
+        "  -m, --all-mips                      emit every mip level (uses --pattern)\n"
+        "  -L, --layer-index <n>               emit a specific array layer (default: 0)\n"
+        "  -l, --all-layers                    emit every array layer (uses --pattern)\n"
         "  -g, --real-origin                   keep bottomLeft orientation (no auto-flip)\n"
         "  -P, --pattern <tpl>                 filename pattern for --all-mips/\n"
         "                                      --all-layers (default:\n"
@@ -481,9 +481,8 @@ const std::unordered_set<std::string>& decoder_flags() {
         "v", "verbose", "p", "preserve-file-path",
         "x", "delete-source-file",
         "g", "real-origin",
-        // NB: lowercase = pick a single index; UPPERCASE = "all of them".
-        "M", "all-mips",
-        "L", "all-layers",
+        "m", "all-mips",
+        "l", "all-layers",
     };
     return s;
 }
@@ -762,8 +761,8 @@ int run_decoder(int argc, char** argv, int start) {
     const fs::path output_dir  = args.get({"u", "output-dir"}).value_or("");
     const bool overwrite       = args.has({"O", "overwrite"});
     const bool undo_flip       = !args.has({"g", "real-origin"});
-    const bool all_mips        = args.has({"M", "all-mips"});
-    const bool all_layers      = args.has({"L", "all-layers"});
+    const bool all_mips        = args.has({"m", "all-mips"});
+    const bool all_layers      = args.has({"l", "all-layers"});
     const std::string pattern  = args.get({"P", "pattern"}).value_or(
         "{filename}-{mipIndex}-{layerIndex}.{format}");
 
@@ -784,7 +783,7 @@ int run_decoder(int argc, char** argv, int start) {
         }
     }
     const int fixed_mip   = args.get({"i", "mip-index"})   ? std::stoi(*args.get({"i", "mip-index"}))   : 0;
-    const int fixed_layer = args.get({"l", "layer-index"}) ? std::stoi(*args.get({"l", "layer-index"})) : 0;
+    const int fixed_layer = args.get({"L", "layer-index"}) ? std::stoi(*args.get({"L", "layer-index"})) : 0;
     dopts.mip_index   = fixed_mip;
     dopts.layer_index = fixed_layer;
 

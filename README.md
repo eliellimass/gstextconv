@@ -149,13 +149,13 @@ uncompressed RGB(A) / DXGI 10–13 half-float are all handled.
 gstextconv decoder -f texture.dds -F png -o texture.png -O
 
 # pick a specific layer + mip out of a DDS array
-gstextconv decoder -f array.dds -F png -c rgb -l 0 -i 0 -o layer0.png
+gstextconv decoder -f array.dds -F png -c rgb -L 0 -i 0 -o layer0.png
 
 # decode and save PNG next to the .ast
 gstextconv decoder -f texture.ast -p
 
 # extract every layer of an array at once
-gstextconv decoder -f array.ast -L -u ./out -O
+gstextconv decoder -f array.ast -l -u ./out -O
 
 # recursive batch decode
 gstextconv decoder -d ./in -r -u ./png -O
@@ -166,14 +166,12 @@ gstextconv decoder -d ./in -r -u ./png -O
 | `-F`, `--format <png\|jpg\|astc\|raw-rgba>` | Output format (default: infer from `-o` or `png`) |
 | `-c`, `--channels <swizzle>` | Channel remap, e.g. `rgba`, `r0b1` |
 | `-i`, `--mip-index <n>` | Specific mip level (default `0`) |
-| `-M`, `--all-mips` | Extract every mip level |
-| `-l`, `--layer-index <n>` | Specific layer (default `0`) |
-| `-L`, `--all-layers` | Extract every layer of a `2darray` |
-| `-P`, `--pattern <tpl>` | Filename template for `-M`/`-L` |
+| `-m`, `--all-mips` | Extract every mip level |
+| `-L`, `--layer-index <n>` | Specific layer (default `0`) |
+| `-l`, `--all-layers` | Extract every layer of a `2darray` |
+| `-P`, `--pattern <tpl>` | Filename template for `-m`/`-l` |
 | `-g`, `--real-origin` | Preserve stored `bottomLeft` (no auto-flip) |
 | `-p`, `-x`, `-v` | Same semantics as in `encoder` |
-
-Convention: **lowercase** short flags select a single index; **UPPERCASE** short flags mean “all of them”.
 
 ### `inspect`
 

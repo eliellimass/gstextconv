@@ -140,12 +140,11 @@ gstextconv decoder <opção posicional: input> <opção posicional: output>
 -r, --recursive # percorre --dir recursivamente
 -F, --format # formato de saída: png, jpg, astc, raw-rgba
 -c, --channels # rgba, rgb, rg, rba ...
--i, --mip-index # extrai mipmap específico (default: 0)
--M, --all-mips # extrai todos os mipmaps
--l, --layer-index # extrai layer específica (default: 0)
--L, --all-layers # extrai todas as layers
-# convenção: minúscula = seleciona 1 índice; MAIÚSCULA = "todos".
--P, --pattern # template de nome para -M/-L (default: {filename}-{mipIndex}-{layerIndex}.{format})
+-i, --mip-index # extrai mipmap específico
+-m, --all-mips # extrai todos os mipmaps
+-L, --layer-index # extrai layer específica
+-l, --all-layers # extrai todas as layers
+-P, --pattern # template de nome para -m/-l (default: {filename}-{mipIndex}-{layerIndex}.{format})
 -o, --output # arquivos de saída
 -u, --output-dir # pasta de salvamento usada para batch e dir
 -O, --overwrite # sobrescreve arquivos
