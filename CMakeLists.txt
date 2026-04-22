@@ -48,15 +48,53 @@ add_library(gstextconv_astcenc STATIC ${GSTEXTCONV_ASTCENC_SRC})
 target_include_directories(gstextconv_astcenc PUBLIC third_party/astcenc)
 set_target_properties(gstextconv_astcenc PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# astcenc prefers a moderate ISA baseline; we rely on the compiler defaults
-# plus per-arch tuning below. The header auto-selects SSE/AVX/NEON using
-# compiler predefines, so the build works out-of-the-box for x86_64 and
-# aarch64 targets with a modern toolchain.
+# astcenc ISA baseline.
+#
+# The single redistributable binary MUST run on every x86_64 CPU in the
+# field, including older laptops (Ivy Bridge, Silvermont / Goldmont
+# Atom / Celeron, AMD Bulldozer / early Jaguar) that do NOT implement
+# AVX2 / F16C / POPCNT. Compiling astcenc with `/arch:AVX2` (or
+# `-mavx2`) makes MSVC/GCC emit VEX-encoded instructions that fault
+# with `STATUS_ILLEGAL_INSTRUCTION (0xC000001D)` at first use on such
+# CPUs — and because the cmd.exe shell does not print the termination
+# status, the process appears to "exit silently with no output". That
+# is precisely the failure mode we want to avoid for the shipped
+# Windows binary, so AVX2 codegen is OFF by default.
+#
+# SSE4.1 is universal on x86_64 (Penryn / K10.5 onward, ~2008) and is
+# safe to assume. It unlocks the bulk of astcenc's SSE fast path. AVX,
+# F16C and POPCNT are kept OFF for maximum compatibility; enabling them
+# via the opt-in below costs a few percent at encode time but drops
+# roughly a decade of hardware.
+#
+# Packagers targeting a known-AVX2 audience (CI matrix, self-built) can
+# opt back in with `-DGSTEXTCONV_X86_AVX2=ON`.
+option(GSTEXTCONV_X86_AVX2
+    "Assume AVX2/F16C/POPCNT at compile time (faster but breaks older x86_64 CPUs)"
+    OFF)
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
-    if(MSVC)
-        target_compile_options(gstextconv_astcenc PRIVATE /arch:AVX2)
+    if(GSTEXTCONV_X86_AVX2)
+        if(MSVC)
+            target_compile_options(gstextconv_astcenc PRIVATE /arch:AVX2)
+        else()
+            target_compile_options(gstextconv_astcenc PRIVATE
+                -mavx2 -mf16c -mpopcnt)
+        endif()
     else()
-        target_compile_options(gstextconv_astcenc PRIVATE -mavx2 -mf16c -mpopcnt)
+        # Force SSE4.1 baseline and explicitly disable AVX/F16C/POPCNT so
+        # astcenc's header-based feature detection does not pick them up
+        # from any stray compiler predefine (MSVC x64 defaults imply
+        # SSE2, not SSE4.1 — the intrinsics compile fine anyway because
+        # MSVC emits them unconditionally).
+        target_compile_definitions(gstextconv_astcenc PRIVATE
+            ASTCENC_SSE=41
+            ASTCENC_AVX=0
+            ASTCENC_F16C=0
+            ASTCENC_POPCNT=0)
+        if(NOT MSVC)
+            target_compile_options(gstextconv_astcenc PRIVATE -msse4.1)
+        endif()
     endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64|arm64|ARM64)")
     if(NOT MSVC)
