@@ -1,130 +1,203 @@
+<div align="center">
+
 # gstextconv
 
-Tool and library to read, write, and inspect **GS2D** textures  
-(the `.ast` / `.gs2d` container used in the Farming Simulator franchise on portable versions).  
-`gstextconv` is an **open-source** project, but the GS2D format itself  
-**is not open** — see the [License](#license) section.
+**A fast, self-contained CLI and Python library for GS2D textures.**
 
-- Static CLI: `gstextconv` (Windows x64, Android aarch64).
-- Python library (pybind11): `gstextconv` (`cp313-win_amd64` and `cp313-android_aarch64` wheels).
-- [`astcenc`](https://github.com/ARM-software/astc-encoder) built-in — no dependency on external binaries for ASTC encoding/decoding.
+Read, write, and inspect the `.ast` / `.gs2d` texture container used by the
+portable builds of the *Farming Simulator* franchise — with built-in
+[astcenc][astcenc] for ASTC encoding/decoding and no external runtime
+dependencies.
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg?logo=cplusplus)](CMakeLists.txt)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android-informational)](.github/workflows/build.yml)
+
+</div>
+
+> [!IMPORTANT]
+> `gstextconv` itself is **open source**. The **GS2D container format is
+> proprietary** and not owned by this project. See [License](#license) for the
+> full interoperability disclaimer.
+
+---
+
+## Table of Contents
+
+- [Highlights](#highlights)
+- [Installation](#installation)
+  - [CLI](#cli)
+  - [Python library](#python-library)
+- [CLI Usage](#cli-usage)
+  - [`encoder`](#encoder)
+  - [`decoder`](#decoder)
+  - [`inspect`](#inspect)
+  - [Verbose output](#verbose-output)
+- [Python API](#python-api)
+- [Supported Formats](#supported-formats)
+- [Repository Layout](#repository-layout)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Highlights
+
+- **Static CLI** — single binary for Windows x64 and Android aarch64, no DLLs
+  or shared runtime.
+- **Python 3.13 bindings** — `cp313-win_amd64` and `cp313-android_aarch64`
+  wheels (pybind11).
+- **Built-in astcenc** — ASTC 4×4 … 12×12 encoding and decoding without any
+  external tool.
+- **Wide DDS input** — BC1–BC7, BC6H HDR, DXGI `R16G16B16A16_FLOAT` (code 10),
+  `R32G32B32A32_FLOAT`, `B5G6R5`, `B5G5R5A1`, and the DX9 FourCC variants.
+- **Multi-layer textures** — full 2D-array / cubemap round-trip with
+  per-layer selection in the decoder (`-L <index>` / `-l`).
+- **Batch & recursive** — process a single file, a flat directory, or an
+  entire tree with `-d -r`.
+- **Deterministic verbose report** — machine-parsable status line per file.
+
+---
 
 ## Installation
 
 ### CLI
 
-Download the binary for your platform from the Releases tab, or build from source:
+Download a prebuilt binary from the [Releases][releases] tab, or build from
+source:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ./build/gstextconv --help
+```
 
-For Windows x64 (MSVC) and Android aarch64 (NDK), the GitHub Actions jobs in .github/workflows/build.yml show the exact commands.
+The exact build commands used for the Windows x64 (MSVC) and Android aarch64
+(NDK) jobs are in [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
-Python Library
+### Python library
 
-pip install gstextconv                     # when published on PyPI
-# or from the repo:
+```bash
+pip install gstextconv               # once published on PyPI
+# or from a checkout:
 pip install .
+```
 
-Requires Python 3.13.
+Requires **Python 3.13**.
 
-Usage — CLI
+---
 
+## CLI Usage
+
+```
 gstextconv [global flags] <subcommand> [options]
+```
 
-global flags:
-  -h, --help     show help
-  -v, --version  print version
-  -l, --license  print full license
-  -i, --info     print build metadata
+Global flags:
 
-Subcommands: encoder, decoder, inspect. Each accepts -h/--help.
+| Flag | Description |
+| :--- | :--- |
+| `-h`, `--help` | Show help (global or per subcommand) |
+| `-v`, `--version` | Print the library version |
+| `-l`, `--license` | Print the full license text |
+| `-i`, `--info` | Print build metadata and capabilities |
 
-gstextconv encoder
+Subcommands: [`encoder`](#encoder), [`decoder`](#decoder),
+[`inspect`](#inspect). Each accepts `-h` / `--help`.
 
-Converts .png / .jpg → .ast container with ASTC (or an uncompressed format supported by GS2D).
+### `encoder`
 
+Convert `.png` / `.jpg` / `.dds` → `.ast` container, using ASTC compression
+(or one of the uncompressed formats supported by GS2D).
+
+```bash
 # single file
 gstextconv encoder -f texture.png -o texture.ast
 
-# batch: all PNGs in a folder, overwrite enabled
+# batch: every PNG in a folder, overwrite enabled
 gstextconv encoder -d ./in -u ./out -O
 
-# save next to original file and remove source
+# save next to the original file and remove the source
 gstextconv encoder -f texture.png -p -x
+```
 
-Main flags:
+| Flag | Description |
+| :--- | :--- |
+| `-f`, `-b`, `-d`, `-r` | Inputs (file / batch / directory / recursive) |
+| `-g`, `--target-game <fs20\|fs23>` | Container format to generate |
+| `-b`, `--block-size <NxM>` | ASTC block size (`4x4` … `12x12`) |
+| `-q`, `--quality <fast\|medium\|thorough>` | astcenc preset |
+| `-s`, `--color-space <srgb\|linear\|alpha>` | Color space |
+| `-w`, `--resize <WxH>` | Resize before encoding |
+| `-t`, `--texture-type <2d\|2darray>` | Texture type |
+| `-n`, `--ideal-origin <topLeft\|bottomLeft>` | Stored Y-axis origin |
+| `-o`, `-u`, `-O` | Output file / directory / overwrite |
+| `-p`, `--preserve-file-path` | Save next to the original file |
+| `-x`, `--delete-source-file` | Delete source after a successful write |
+| `-v`, `--verbose` | Per-file report (see [below](#verbose-output)) |
 
-flag	description
+### `decoder`
 
--f/--file, -b/--batch, -d/--dir, -r/--recursive	inputs
--g/--target-game <fs20|fs23>	container format to generate
--b/--block-size <NxM>	ASTC block size (4x4 … 12x12)
--q/--quality <fast|medium|thorough>	astcenc preset
--s/--color-space <srgb|linear|alpha>	color space
--w/--resize <WxH>	resize before encoding
--t/--texture-type <2d|2darray>	texture type
--n/--ideal-origin <topLeft|bottomLeft>	stored Y-axis origin
--o/--output, -u/--output-dir, -O/--overwrite	output
--p/--preserve-file-path	save next to original file
--x/--delete-source-file	delete source file after success
--v/--verbose	print report for each file (see below)
+Convert `.ast` / `.gs2d` → `.png` (or any other format implied by the
+extension passed to `-o`).
 
-
-gstextconv decoder
-
-Converts .ast / .gs2d → .png (or another format supported by the extension passed to -o).
-
-# decode a texture and save PNG next to it
+```bash
+# decode and save PNG next to the .ast
 gstextconv decoder -f texture.ast -p
 
-# extract a specific layer from a 2D array
+# extract a specific layer from a 2D-array texture
 gstextconv decoder -f array.ast -L 3 -o layer3.png
 
-# recursive batch mode
+# extract every layer of an array at once
+gstextconv decoder -f array.ast -l -u ./out -O
+
+# recursive batch decode
 gstextconv decoder -d ./in -r -u ./png -O
+```
 
-Main flags:
+| Flag | Description |
+| :--- | :--- |
+| `-c`, `--channels <swizzle>` | Channel remap, e.g. `rgba`, `r0b1` |
+| `-i`, `--mip-index <n>` | Specific mip level (default `0`) |
+| `-L`, `--layer-index <n>` | Specific layer (default `0`) |
+| `-l`, `--all-layers` | Extract every layer of a `2darray` |
+| `-g`, `--real-origin` | Preserve stored `bottomLeft` (no auto-flip) |
+| `-p`, `-x`, `-v` | Same semantics as in `encoder` |
 
-flag	description
+### `inspect`
 
--c/--channels <swizzle>	e.g. rgba, r0b1
--i/--mip-index <n>	specific mip (default 0)
--L/--layer-index <n>	specific layer (default 0)
--g/--real-origin	preserve bottomLeft (no automatic flip)
--p/--preserve-file-path, -x/--delete-source-file, -v/--verbose	same as encoder
+Print container metadata as JSON. By default pretty JSON is written to
+`stdout`; with `-o` it is written to a file, or to a directory in batch
+mode.
 
+```bash
+gstextconv inspect -f texture.ast -a               # everything
+gstextconv inspect -d ./in -r -a -o ./json         # one .json per texture
+gstextconv inspect -f texture.ast -c -s -n         # a subset of fields
+```
 
-gstextconv inspect
+Field selectors (combine freely — omitting them is equivalent to `-a`):
 
-Prints container metadata as JSON. By default it outputs pretty JSON to stdout; with -o it writes to a file (or a directory in batch mode).
+| Flag | Field |
+| :--- | :--- |
+| `-m`, `--num-mipmaps` | Number of mipmaps |
+| `-l`, `--num-layers` | Number of layers |
+| `-c`, `--compression` | Compression (`astc_NxM` or `uncompressed`) |
+| `-s`, `--size` | Base width and height |
+| `--ideal-origin` | Stored ideal origin |
+| `--color-space` | `srgb` / `linear` / `alpha` |
+| `-n`, `--channels` | Number of channels and `color_format` |
+| `-a`, `--all` | All fields above |
 
-gstextconv inspect -f texture.ast -a              # print everything
-gstextconv inspect -d ./in -r -a -o ./json       # one .json per texture
-gstextconv inspect -f texture.ast -c -s -n       # compression, size, channels only
+The JSON output always includes `container_version` and `texture_type`.
 
-Selectors (can be combined; if none are passed, equivalent to -a):
+### Verbose output
 
-flag	field
+Passing `-v` / `--verbose` to any subcommand emits one machine-parsable
+record per file:
 
--m/--num-mipmaps	number of mipmaps
--l/--num-layers	number of layers
--c/--compression	compression (astc_NxM or uncompressed)
--s/--size	base width and height
---ideal-origin	stored ideal origin
---color-space	srgb / linear / alpha
--n/--channels	number of channels and color_format
--a/--all	all fields above
-
-
-The JSON always includes container_version and texture_type.
-
---verbose Output
-
-Passing -v/--verbose to any subcommand reports each processed file in this format:
-
+```
 gstextconv:
     index: 1;
     filename: in/texture.ast;
@@ -132,18 +205,23 @@ gstextconv:
     process duration: 28.085ms;
     process type: decoding;
     status: success;
+```
 
-status may be success or skipped (when destination already exists and -O was not passed).
-process type is encoding, decoding, or inspection.
+- `status` — `success` or `skipped` (destination exists and `-O` was not
+  passed).
+- `process type` — `encoding`, `decoding`, or `inspection`.
 
-Usage — Python Library
+---
 
+## Python API
+
+```python
 import gstextconv
 
 # decode
 img = gstextconv.decode(open("texture.ast", "rb").read())
 img.width, img.height, img.num_mipmaps, img.num_layers
-img.mip(0).layer(0).pixels  # RGBA bytes for mip/layer
+img.mip(0).layer(0).pixels        # RGBA bytes for that mip / layer
 
 # inspect
 meta = gstextconv.inspect(open("texture.ast", "rb").read())
@@ -159,53 +237,102 @@ ast = gstextconv.encode(
     color_space="srgb",
 )
 open("texture.ast", "wb").write(ast)
+```
 
-The exact API, field names, and enums are in:
+The authoritative API — field names, enums, and defaults — lives in
+[`python/gstextconv/__init__.py`](python/gstextconv/__init__.py).
 
-python/gstextconv/__init__.py
+---
 
-Supported Formats
+## Supported Formats
 
-Container	Version	Support
+### GS2D containers
 
-GS2D / FS20	v3, v4	read + write
-GS2D / FS23	v6	read + write
+| Container | Version | Support |
+| :--- | :--- | :--- |
+| GS2D / FS20 | `v3`, `v4` | read + write |
+| GS2D / FS23 | `v6` | read + write |
 
+### ASTC block sizes
 
-Tested ASTC compressions: 4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 8x8, 10x5,
-10x6, 10x8, 10x10, 12x10, 12x12 (all via built-in astcenc).
+`4x4`, `5x4`, `5x5`, `6x5`, `6x6`, `8x5`, `8x6`, `8x8`, `10x5`, `10x6`,
+`10x8`, `10x10`, `12x10`, `12x12` — all via the embedded astcenc backend.
 
-Uncompressed formats: r8, rg16, rgb24, bgr24, rgba32, bgra32,
-rgba64f, rgba128f.
+### Uncompressed color formats
 
-Validation sweep (tools/sweep_decode.py) passes 8651/8653 samples from samples/fs20/gs2d/ and samples/fs23/gs2d/ (the remaining 2 are zero-byte .ast files).
+`r8`, `rg16`, `rgb24`, `bgr24`, `rgba32`, `bgra32`, `rgba64f`, `rgba128f`.
 
-Architecture
+### DDS inputs accepted by `encoder`
 
-cli/main.cpp          # gstextconv executable
-include/gstextconv/   # public C++ API
-src/                  # container, codec, astc_bridge, image_io, ...
-python/_bindings.cpp  # pybind11 → _gstextconv_native module
-python/gstextconv/    # Python facade
-third_party/          # astcenc, miniz, stb (vendored)
-tools/sweep_decode.py # mass validation
-samples/              # FS20 / FS23 samples
+| DXGI / FourCC | Format | Notes |
+| :--- | :--- | :--- |
+| 2 | `R32G32B32A32_FLOAT` | Clamped to `[0, 1]` |
+| 10 | `R16G16B16A16_FLOAT` | Half-float → unorm8 |
+| 11 / 13 | `R16G16B16A16_UNORM` / `_SNORM` | |
+| 28 / 29 | `R8G8B8A8_UNORM` / `_SRGB` | |
+| 70–72 | `BC1` | (DXT1) |
+| 73–75 | `BC2` | (DXT3) |
+| 76–78 | `BC3` | (DXT5) |
+| 79–81 | `BC4` | |
+| 82–84 | `BC5` | |
+| 85 / 86 | `B5G6R5` / `B5G5R5A1` | |
+| 87 / 91 | `B8G8R8A8` | |
+| 88 | `B8G8R8X8` | |
+| 94–96 | `BC6H_UF16` / `BC6H_SF16` | HDR, Reinhard-tonemapped |
+| 97–99 | `BC7` | |
+| FourCC | `DXT1`–`DXT5`, `ATI1/BC4U/BC4S`, `ATI2/BC5U/BC5S` | Legacy DX9 headers |
 
-License
+Block decoding for BC2/BC5/BC6H/BC7 uses the MIT-licensed
+[`iOrange/bcdec`](https://github.com/iOrange/bcdec), vendored under
+`third_party/bcdec/`.
 
-See LICENSE.
+### Validation
 
-Plain-language summary:
+`tools/sweep_decode.py` currently passes **8651 / 8653** samples from
+`samples/fs20/gs2d/` and `samples/fs23/gs2d/` (the remaining two are
+zero-byte `.ast` files and are expected to fail).
 
-The source code of this project is released under an MIT-style license — use, modify, and redistribute freely.
+---
 
-The GS2D / .ast / .gs2d format is proprietary work owned by third parties. This project exists for interoperability purposes, and the source code license does not grant any rights over the format itself, nor over any game assets/textures that use it.
+## Repository Layout
 
-You are solely responsible for ensuring that use of this tool with any file complies with the original software terms, asset copyrights, and applicable law.
+```
+cli/main.cpp              CLI entry point
+include/gstextconv/       Public C++ API
+src/                      container, codec, astc_bridge, image_io, dds_io, ...
+python/_bindings.cpp      pybind11 → _gstextconv_native module
+python/gstextconv/        Python facade
+third_party/              astcenc, miniz, stb, bcdec (all vendored)
+tools/sweep_decode.py     Mass-validation harness
+samples/                  FS20 / FS23 reference textures
+```
 
-This project is not affiliated with or endorsed by Giants Software, or any other rights holder of the format or games that use it.
+---
 
+## Contributing
 
-Contributing
+Pull requests are welcome. Before opening a larger PR, please file an issue
+describing the problem or proposal. Keep changes focused and, whenever
+possible, accompany them with test samples.
 
-Pull requests are welcome. Before opening a larger PR, open an issue describing the problem / proposal. Keep changes focused and accompanied by test samples whenever possible.
+---
+
+## License
+
+The source code of this project is released under an **MIT-style license**
+(see [`LICENSE`](LICENSE)) — use, modify, and redistribute freely.
+
+The **GS2D / `.ast` / `.gs2d` format is proprietary** work owned by third
+parties. This project exists for interoperability purposes; the source
+license **does not grant any rights** over the format itself, nor over any
+game assets / textures that use it.
+
+You are solely responsible for ensuring that use of this tool with any file
+complies with the original software terms, asset copyrights, and applicable
+law.
+
+> This project is **not affiliated with or endorsed by** Giants Software, or
+> any other rights holder of the format or of the games that use it.
+
+[astcenc]: https://github.com/ARM-software/astc-encoder
+[releases]: ../../releases
