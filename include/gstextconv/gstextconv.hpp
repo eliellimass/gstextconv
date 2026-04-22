@@ -81,7 +81,7 @@ struct Image {
 
 struct EncodeOptions {
     TargetGame  target_game = TargetGame::FS23;
-    int         mipmaps     = 0;                         // 0 -> auto count
+    int         mipmaps     = 0;                         // 0 -> base only, N -> N additional, <0 -> auto/max
     BlockSize   block_size  = {6, 6};
     Quality     quality     = Quality::Fast;
     ColorSpace  color_space = ColorSpace::Srgb;
@@ -91,6 +91,13 @@ struct EncodeOptions {
     TextureType texture_type    = TextureType::TwoD;
     std::array<char, 4> roughness_channel = {'r', 'g', 'b', 'a'};
     NormalMapFormat normal_map_format = NormalMapFormat::RGB;
+    /// When true and the source image already carries a mip chain (e.g. a DDS
+    /// with stored mip levels), feed those mips straight to the encoder instead
+    /// of regenerating the chain from the base level.
+    bool inherit_mipmaps = false;
+    /// When true and the source image has multiple array slices, encode every
+    /// slice as a 2DArray layer instead of requiring the caller to split them.
+    bool inherit_layers  = false;
 };
 
 /// Decode GS2D (.ast), ASTC (.astc) or raw-RGBA into an @ref Image.
