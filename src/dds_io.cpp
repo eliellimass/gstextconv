@@ -8,6 +8,7 @@
 #include <string>
 
 #include "gstextconv/gstextconv.hpp"
+#include "bcdec.h"
 
 namespace gstextconv::ddsio {
 
@@ -323,11 +324,18 @@ struct DecodeOut {
 enum class DecodeKind {
     Masked,       // uncompressed RGBA with channel masks (from the DX9 header)
     BC1,
+    BC2,          // DXGI 74 / FourCC 'DXT3': 4-bit explicit alpha + RGB565 block
     BC3,
     BC4,          // single-channel; alpha channel is duplicated to RGB
+    BC5,          // two-channel (RG); blue forced to 0, alpha forced to 255
+    BC6HUnsigned, // DXGI 95 BC6H_UF16: HDR RGB (unsigned half) -> tonemapped to sRGB
+    BC6HSigned,   // DXGI 96 BC6H_SF16: HDR RGB (signed half)
+    BC7,          // DXGI 98 BC7_UNORM (and 97 typeless / 99 sRGB)
     Rgba8,        // explicit R8G8B8A8
     Bgra8,        // explicit B8G8R8A8
     Rgbx8,        // 32-bit RGB, ignore 4th byte
+    Bgr565,       // DXGI 85 B5G6R5_UNORM
+    Bgra5551,     // DXGI 86 B5G5R5A1_UNORM
     Rgba16Float,  // DXGI_FORMAT_R16G16B16A16_FLOAT (code 10), clamped to [0,1]
     Rgba16Unorm,  // DXGI_FORMAT_R16G16B16A16_UNORM (code 11)
     Rgba16Snorm,  // DXGI_FORMAT_R16G16B16A16_SNORM (code 13)
@@ -358,12 +366,26 @@ FormatInfo determine_format(const PixelFormat& pf, std::uint32_t dxgi_format) {
                 f.kind = DecodeKind::Bgra8; f.bits = 32; return f;
             case 88:           // B8G8R8X8_UNORM
                 f.kind = DecodeKind::Rgbx8; f.bits = 32; return f;
-            case 71: case 72:  // BC1_UNORM / _SRGB
+            case 85:           // B5G6R5_UNORM
+                f.kind = DecodeKind::Bgr565; f.bits = 16; return f;
+            case 86:           // B5G5R5A1_UNORM
+                f.kind = DecodeKind::Bgra5551; f.bits = 16; return f;
+            case 70: case 71: case 72:  // BC1_TYPELESS / _UNORM / _SRGB
                 f.kind = DecodeKind::BC1; f.is_compressed = true; return f;
-            case 77: case 78:  // BC3_UNORM / _SRGB
+            case 73: case 74: case 75:  // BC2_TYPELESS / _UNORM / _SRGB (DXT3)
+                f.kind = DecodeKind::BC2; f.is_compressed = true; return f;
+            case 76: case 77: case 78:  // BC3_TYPELESS / _UNORM / _SRGB
                 f.kind = DecodeKind::BC3; f.is_compressed = true; return f;
-            case 80: case 81:  // BC4_UNORM / _SNORM
+            case 79: case 80: case 81:  // BC4_TYPELESS / _UNORM / _SNORM
                 f.kind = DecodeKind::BC4; f.is_compressed = true; return f;
+            case 82: case 83: case 84:  // BC5_TYPELESS / _UNORM / _SNORM
+                f.kind = DecodeKind::BC5; f.is_compressed = true; return f;
+            case 94: case 95:  // BC6H_TYPELESS / BC6H_UF16
+                f.kind = DecodeKind::BC6HUnsigned; f.is_compressed = true; return f;
+            case 96:           // BC6H_SF16
+                f.kind = DecodeKind::BC6HSigned; f.is_compressed = true; return f;
+            case 97: case 98: case 99:  // BC7_TYPELESS / _UNORM / _SRGB
+                f.kind = DecodeKind::BC7; f.is_compressed = true; return f;
             default:
                 throw Error(Error::Code::UnsupportedFormat,
                             "dds: unsupported DXGI format " +
@@ -373,11 +395,17 @@ FormatInfo determine_format(const PixelFormat& pf, std::uint32_t dxgi_format) {
 
     if (pf.flags & DDPF_FOURCC) {
         switch (pf.fourcc) {
-            case 0x31545844: /* DXT1 */ f.kind = DecodeKind::BC1; break;
-            case 0x33545844: /* DXT3 */  // treated as BC3 (alpha is different
-                                          // but keeps alpha channel present)
-            case 0x35545844: /* DXT5 */ f.kind = DecodeKind::BC3; break;
-            case 0x31495441: /* ATI1 */ f.kind = DecodeKind::BC4; break;
+            case 0x31545844: /* 'DXT1' */ f.kind = DecodeKind::BC1; break;
+            case 0x32545844: /* 'DXT2' */  // pre-multiplied BC2, treat as BC2
+            case 0x33545844: /* 'DXT3' */ f.kind = DecodeKind::BC2; break;
+            case 0x34545844: /* 'DXT4' */  // pre-multiplied BC3, treat as BC3
+            case 0x35545844: /* 'DXT5' */ f.kind = DecodeKind::BC3; break;
+            case 0x55344342: /* 'BC4U' */
+            case 0x31495441: /* 'ATI1' */ f.kind = DecodeKind::BC4; break;
+            case 0x53344342: /* 'BC4S' */ f.kind = DecodeKind::BC4; break;
+            case 0x32495441: /* 'ATI2' */
+            case 0x55354342: /* 'BC5U' */ f.kind = DecodeKind::BC5; break;
+            case 0x53354342: /* 'BC5S' */ f.kind = DecodeKind::BC5; break;
             default:
                 throw Error(Error::Code::UnsupportedFormat,
                             "dds: unsupported FourCC");
@@ -399,10 +427,18 @@ std::size_t mip_size(const FormatInfo& f, int w, int h) {
     switch (f.kind) {
         case DecodeKind::BC1:  return compute_block_size(w, h, 8);
         case DecodeKind::BC4:  return compute_block_size(w, h, 8);
+        case DecodeKind::BC2:  return compute_block_size(w, h, 16);
         case DecodeKind::BC3:  return compute_block_size(w, h, 16);
+        case DecodeKind::BC5:  return compute_block_size(w, h, 16);
+        case DecodeKind::BC6HUnsigned:
+        case DecodeKind::BC6HSigned:
+        case DecodeKind::BC7:  return compute_block_size(w, h, 16);
         case DecodeKind::Rgba8:
         case DecodeKind::Bgra8:
         case DecodeKind::Rgbx8: return static_cast<std::size_t>(w) * h * 4;
+        case DecodeKind::Bgr565:
+        case DecodeKind::Bgra5551:
+            return static_cast<std::size_t>(w) * h * 2;
         case DecodeKind::Rgba16Float:
         case DecodeKind::Rgba16Unorm:
         case DecodeKind::Rgba16Snorm:
@@ -414,6 +450,74 @@ std::size_t mip_size(const FormatInfo& f, int w, int h) {
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// Thin wrappers that drive bcdec to fill a full RGBA8 image block-by-block.
+// ---------------------------------------------------------------------------
+
+template <int BlockBytes, typename Fn>
+std::vector<std::uint8_t> decode_bc_via_bcdec(const std::uint8_t* src,
+                                              std::size_t size,
+                                              int w, int h,
+                                              const char* name, Fn&& decode_block) {
+    const std::size_t expected = compute_block_size(w, h, BlockBytes);
+    if (size < expected) {
+        throw Error(Error::Code::InvalidFile,
+                    std::string("dds: ") + name + " payload truncated");
+    }
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(w) * h * 4, 0);
+    const int bw = std::max(1, (w + 3) / 4);
+    const int bh = std::max(1, (h + 3) / 4);
+    std::uint8_t tile[16 * 4];
+    for (int by = 0; by < bh; ++by) {
+        for (int bx = 0; bx < bw; ++bx) {
+            decode_block(src + (by * bw + bx) * BlockBytes, tile);
+            blit_tile(out.data(), w, h, bx * 4, by * 4, tile);
+        }
+    }
+    return out;
+}
+
+// Decompress a 4x4 BC6H block into tonemapped sRGB8. BC6H is HDR so we Reinhard
+// tonemap before the unorm8 clamp to keep bright highlights visible rather than
+// hard-clipped to white.
+std::vector<std::uint8_t> decode_bc6h(const std::uint8_t* src, std::size_t size,
+                                      int w, int h, bool is_signed) {
+    const std::size_t expected = compute_block_size(w, h, 16);
+    if (size < expected) {
+        throw Error(Error::Code::InvalidFile, "dds: BC6H payload truncated");
+    }
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(w) * h * 4, 0);
+    const int bw = std::max(1, (w + 3) / 4);
+    const int bh = std::max(1, (h + 3) / 4);
+    float tile[16 * 3];
+    for (int by = 0; by < bh; ++by) {
+        for (int bx = 0; bx < bw; ++bx) {
+            bcdec_bc6h_float(src + (by * bw + bx) * 16, tile, /*pitch=*/12,
+                             is_signed ? 1 : 0);
+            for (int ty = 0; ty < 4; ++ty) {
+                const int y = by * 4 + ty;
+                if (y >= h) break;
+                for (int tx = 0; tx < 4; ++tx) {
+                    const int x = bx * 4 + tx;
+                    if (x >= w) break;
+                    const float* rgb = tile + (ty * 4 + tx) * 3;
+                    auto map = [](float v) {
+                        if (!(v == v)) return 0.0f;      // NaN -> 0
+                        if (v < 0.0f) v = -v;             // SF16 can be negative
+                        return v / (1.0f + v);            // Reinhard
+                    };
+                    std::uint8_t* dst = out.data() + (y * w + x) * 4;
+                    dst[0] = float_to_unorm8(map(rgb[0]));
+                    dst[1] = float_to_unorm8(map(rgb[1]));
+                    dst[2] = float_to_unorm8(map(rgb[2]));
+                    dst[3] = 255;
+                }
+            }
+        }
+    }
+    return out;
+}
+
 Mip decode_mip(const std::uint8_t* src, std::size_t size,
                int w, int h, const FormatInfo& f, const PixelFormat& pf) {
     Mip m;
@@ -422,6 +526,82 @@ Mip decode_mip(const std::uint8_t* src, std::size_t size,
     switch (f.kind) {
         case DecodeKind::BC1: m.rgba = decode_bc1(src, size, w, h); break;
         case DecodeKind::BC3: m.rgba = decode_bc3(src, size, w, h); break;
+        case DecodeKind::BC2:
+            m.rgba = decode_bc_via_bcdec<16>(
+                src, size, w, h, "BC2",
+                [](const std::uint8_t* blk, std::uint8_t* tile) {
+                    bcdec_bc2(blk, tile, /*pitch=*/16);
+                });
+            break;
+        case DecodeKind::BC5:
+            m.rgba = decode_bc_via_bcdec<16>(
+                src, size, w, h, "BC5",
+                [](const std::uint8_t* blk, std::uint8_t* tile) {
+                    // bcdec_bc5 writes only R,G (2 bytes per pixel). Expand in
+                    // place into RGBA8 with B=0, A=255.
+                    std::uint8_t rg[16 * 2];
+                    bcdec_bc5(blk, rg, /*pitch=*/8);
+                    for (int i = 0; i < 16; ++i) {
+                        tile[i * 4 + 0] = rg[i * 2 + 0];
+                        tile[i * 4 + 1] = rg[i * 2 + 1];
+                        tile[i * 4 + 2] = 0;
+                        tile[i * 4 + 3] = 255;
+                    }
+                });
+            break;
+        case DecodeKind::BC7:
+            m.rgba = decode_bc_via_bcdec<16>(
+                src, size, w, h, "BC7",
+                [](const std::uint8_t* blk, std::uint8_t* tile) {
+                    bcdec_bc7(blk, tile, /*pitch=*/16);
+                });
+            break;
+        case DecodeKind::BC6HUnsigned:
+            m.rgba = decode_bc6h(src, size, w, h, /*is_signed=*/false);
+            break;
+        case DecodeKind::BC6HSigned:
+            m.rgba = decode_bc6h(src, size, w, h, /*is_signed=*/true);
+            break;
+        case DecodeKind::Bgr565: {
+            const std::size_t px = static_cast<std::size_t>(w) * h;
+            if (size < px * 2) {
+                throw Error(Error::Code::InvalidFile,
+                            "dds: B5G6R5 payload truncated");
+            }
+            m.rgba.resize(px * 4);
+            for (std::size_t i = 0; i < px; ++i) {
+                const std::uint16_t c =
+                    static_cast<std::uint16_t>(src[i * 2] | (src[i * 2 + 1] << 8));
+                std::uint8_t r, g, b;
+                rgb565_to_rgb(c, r, g, b);
+                m.rgba[i * 4 + 0] = r;
+                m.rgba[i * 4 + 1] = g;
+                m.rgba[i * 4 + 2] = b;
+                m.rgba[i * 4 + 3] = 255;
+            }
+            break;
+        }
+        case DecodeKind::Bgra5551: {
+            const std::size_t px = static_cast<std::size_t>(w) * h;
+            if (size < px * 2) {
+                throw Error(Error::Code::InvalidFile,
+                            "dds: B5G5R5A1 payload truncated");
+            }
+            m.rgba.resize(px * 4);
+            for (std::size_t i = 0; i < px; ++i) {
+                const std::uint16_t c =
+                    static_cast<std::uint16_t>(src[i * 2] | (src[i * 2 + 1] << 8));
+                const std::uint8_t b = static_cast<std::uint8_t>(( c        & 0x1f) * 255 / 31);
+                const std::uint8_t g = static_cast<std::uint8_t>(((c >>  5) & 0x1f) * 255 / 31);
+                const std::uint8_t r = static_cast<std::uint8_t>(((c >> 10) & 0x1f) * 255 / 31);
+                const std::uint8_t a = (c & 0x8000) ? 255 : 0;
+                m.rgba[i * 4 + 0] = r;
+                m.rgba[i * 4 + 1] = g;
+                m.rgba[i * 4 + 2] = b;
+                m.rgba[i * 4 + 3] = a;
+            }
+            break;
+        }
         case DecodeKind::BC4: {
             const std::size_t expected = compute_block_size(w, h, 8);
             if (size < expected) {
@@ -654,7 +834,10 @@ LoadedDDS decode_dds(const std::uint8_t* data, std::size_t size) {
     out.has_alpha =
         (pf.flags & DDPF_ALPHAPIXELS) != 0 ||
         (finfo.kind == DecodeKind::Rgba8 || finfo.kind == DecodeKind::Bgra8 ||
+         finfo.kind == DecodeKind::BC2 ||
          finfo.kind == DecodeKind::BC3 ||
+         finfo.kind == DecodeKind::BC7 ||
+         finfo.kind == DecodeKind::Bgra5551 ||
          finfo.kind == DecodeKind::Rgba16Float ||
          finfo.kind == DecodeKind::Rgba16Unorm ||
          finfo.kind == DecodeKind::Rgba16Snorm ||

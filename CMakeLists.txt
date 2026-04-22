@@ -33,6 +33,13 @@ target_include_directories(gstextconv_miniz PUBLIC third_party/miniz)
 set_target_properties(gstextconv_miniz PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # ------------------------------------------------------------------
+# Third-party: bcdec (BC1..BC7 + BC6H block decoders, MIT/public domain)
+# ------------------------------------------------------------------
+add_library(gstextconv_bcdec STATIC third_party/bcdec/bcdec_impl.c)
+target_include_directories(gstextconv_bcdec PUBLIC third_party/bcdec)
+set_target_properties(gstextconv_bcdec PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# ------------------------------------------------------------------
 # Third-party: astcenc embedded (auto-detects SIMD from compiler flags)
 # ------------------------------------------------------------------
 file(GLOB GSTEXTCONV_ASTCENC_SRC CONFIGURE_DEPENDS
@@ -81,7 +88,7 @@ target_include_directories(gstextconv_core
     PRIVATE third_party/stb)
 target_link_libraries(gstextconv_core
     PUBLIC  gstextconv_astcenc
-    PRIVATE gstextconv_miniz)
+    PRIVATE gstextconv_miniz gstextconv_bcdec)
 
 # ------------------------------------------------------------------
 # CLI executable — static linkage (no shared library dependency)
@@ -101,6 +108,8 @@ if(GSTEXTCONV_BUILD_CLI)
         set_property(TARGET gstextconv_astcenc PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded")
         set_property(TARGET gstextconv_miniz PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded")
+        set_property(TARGET gstextconv_bcdec PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded")
     elseif(MINGW OR (CMAKE_CXX_COMPILER_ID MATCHES "GNU" AND WIN32))
         target_link_options(gstextconv PRIVATE
