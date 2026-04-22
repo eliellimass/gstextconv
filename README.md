@@ -139,18 +139,23 @@ gstextconv encoder -f texture.png -p -x
 
 ### `decoder`
 
-Convert `.ast` / `.gs2d` → `.png` (or any other format implied by the
-extension passed to `-o`).
+Convert `.ast` / `.gs2d` **or `.dds`** → `.png` (or any format picked by
+`-F` / `-o`'s extension). DDS inputs are decoded directly without
+going through the GS2D container — BC1/BC2/BC3/BC4/BC5/BC6H/BC7 and
+uncompressed RGB(A) / DXGI 10–13 half-float are all handled.
 
 ```bash
+# decode a DDS straight to PNG, without an intermediate .ast
+gstextconv decoder -f texture.dds -F png -o texture.png -O
+
+# pick a specific layer + mip out of a DDS array
+gstextconv decoder -f array.dds -F png -c rgb -l 0 -i 0 -o layer0.png
+
 # decode and save PNG next to the .ast
 gstextconv decoder -f texture.ast -p
 
-# extract a specific layer from a 2D-array texture
-gstextconv decoder -f array.ast -L 3 -o layer3.png
-
 # extract every layer of an array at once
-gstextconv decoder -f array.ast -l -u ./out -O
+gstextconv decoder -f array.ast -L -u ./out -O
 
 # recursive batch decode
 gstextconv decoder -d ./in -r -u ./png -O
@@ -158,12 +163,17 @@ gstextconv decoder -d ./in -r -u ./png -O
 
 | Flag | Description |
 | :--- | :--- |
+| `-F`, `--format <png\|jpg\|astc\|raw-rgba>` | Output format (default: infer from `-o` or `png`) |
 | `-c`, `--channels <swizzle>` | Channel remap, e.g. `rgba`, `r0b1` |
 | `-i`, `--mip-index <n>` | Specific mip level (default `0`) |
-| `-L`, `--layer-index <n>` | Specific layer (default `0`) |
-| `-l`, `--all-layers` | Extract every layer of a `2darray` |
+| `-M`, `--all-mips` | Extract every mip level |
+| `-l`, `--layer-index <n>` | Specific layer (default `0`) |
+| `-L`, `--all-layers` | Extract every layer of a `2darray` |
+| `-P`, `--pattern <tpl>` | Filename template for `-M`/`-L` |
 | `-g`, `--real-origin` | Preserve stored `bottomLeft` (no auto-flip) |
 | `-p`, `-x`, `-v` | Same semantics as in `encoder` |
+
+Convention: **lowercase** short flags select a single index; **UPPERCASE** short flags mean “all of them”.
 
 ### `inspect`
 
@@ -177,6 +187,10 @@ gstextconv inspect -d ./in -r -a -o ./json         # one .json per texture
 gstextconv inspect -f texture.ast -c -s -n         # a subset of fields
 ```
 
+`inspect` also accepts `.dds`, `.png` and `.jpg` directly — useful
+for reporting the mip / layer count of a DDS array without first
+encoding it to `.ast`.
+
 Field selectors (combine freely — omitting them is equivalent to `-a`):
 
 | Flag | Field |
@@ -185,8 +199,8 @@ Field selectors (combine freely — omitting them is equivalent to `-a`):
 | `-l`, `--num-layers` | Number of layers |
 | `-c`, `--compression` | Compression (`astc_NxM` or `uncompressed`) |
 | `-s`, `--size` | Base width and height |
-| `--ideal-origin` | Stored ideal origin |
-| `--color-space` | `srgb` / `linear` / `alpha` |
+| `-i`, `--ideal-origin` | Stored ideal origin |
+| `-S`, `--color-space` | `srgb` / `linear` / `alpha` |
 | `-n`, `--channels` | Number of channels and `color_format` |
 | `-a`, `--all` | All fields above |
 

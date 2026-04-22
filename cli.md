@@ -101,6 +101,9 @@ gstextconv encoder
 -o, --output
 -r, --recursive
 -a, --raw-rgba
+-W, --raw-width # largura usada com --raw-rgba
+-H, --raw-height # altura usada com --raw-rgba
+-F, --raw-format # color format dos inputs --raw-rgba (r8, rg16, rgb24, bgr24, rgba32, bgra32, rgba64f, rgba128f)
 -g, --target-game: fs20 (v3), fs23 (v6), fs26 (provavél v6+).
 -k, --block-size: (4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 8x8, 10x5, 10x6, 10x8, 10x10, 12x10, 12x12)
 -q, --quality: fast, medium, thorough
@@ -128,25 +131,32 @@ gstextconv encoder
 -nmp, --normal-map-format (rg, rgb)
 
 gstextconv decoder <opção posicional: input> <opção posicional: output>
--f, --file # arquivo único para decodificação
--d, --dir # pasta onde está os arquivos .ast/.gs2d
--b, --batch # abre vários arquivos 
--r, --recursive # percorre --dir recursivamente 
--m, --all-mips # extrai todos os mipmaps
--i, --mip-index # extrai mipmap específico
--L, --layer-index # extrai layer específica (-x passou a ser --delete-source-file)
--l, --all-layers # extrai todas as layers
+# aceita GS2D (.ast/.gs2d) e DDS (.dds) diretamente como entrada —
+# arquivos .dds são decodificados sem passar pelo container GS2D
+# (BC1/BC2/BC3/BC4/BC5/BC6H/BC7 e RGB(A) uncompressed / DXGI 10-13).
+-f, --file # arquivo único para decodificação (.ast, .gs2d ou .dds)
+-d, --dir # pasta com arquivos .ast/.gs2d/.dds
+-b, --batch # abre vários arquivos
+-r, --recursive # percorre --dir recursivamente
+-F, --format # formato de saída: png, jpg, astc, raw-rgba
 -c, --channels # rgba, rgb, rg, rba ...
+-i, --mip-index # extrai mipmap específico (default: 0)
+-M, --all-mips # extrai todos os mipmaps
+-l, --layer-index # extrai layer específica (default: 0)
+-L, --all-layers # extrai todas as layers
+# convenção: minúscula = seleciona 1 índice; MAIÚSCULA = "todos".
+-P, --pattern # template de nome para -M/-L (default: {filename}-{mipIndex}-{layerIndex}.{format})
 -o, --output # arquivos de saída
 -u, --output-dir # pasta de salvamento usada para batch e dir
--O, --overwrite # sobrescreve arquivos 
--g, --real-origin # retorna ao posição normal da textura
+-O, --overwrite # sobrescreve arquivos
+-g, --real-origin # retorna à posição normal da textura
 -p, --preserve-file-path # salva o arquivo na mesma pasta do arquivo original
 -x, --delete-source-file # apaga o arquivo de origem após a decodificação
 -v, --verbose # imprime um relatório para cada arquivo processado
 -h, --help # mostra os argumentos deste subcomando
 
 gstextconv inspect
+# aceita GS2D (.ast/.gs2d), DDS (.dds), PNG e JPG diretamente.
 -f, --file          # arquivo único
 -b, --batch         # lista de arquivos
 -d, --dir           # pastas raiz onde os arquivos estão
@@ -156,7 +166,7 @@ gstextconv inspect
 -c, --compression   # imprime a compressão utilizada na textura
 -s, --size          # imprime as dimensões da imagem
 -i, --ideal-origin  # imprime a origem ideal da imagem
-    --color-space   # imprime o espaço de cor da textura (apenas long, -s é --size)
+-S, --color-space   # imprime o espaço de cor da textura
 -n, --channels      # imprime os canais da textura
 -a, --all           # imprime todas as informações (padrão se nenhum seletor for passado)
 -o, --output        # single file -> nome do arquivo json de saída

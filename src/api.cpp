@@ -94,21 +94,13 @@ std::string_view build_date() noexcept {
 Image decode(const std::uint8_t* data, std::size_t size) {
     if (!data || size < 4) invalid("empty input");
 
-    // Native formats first
-    if (looks_like_png(data, size) || looks_like_jpg(data, size)) {
-        auto src = imageio::decode_png_jpg(data, size);
-        Image img;
-        img.width = src.width;
-        img.height = src.height;
-        img.color_format = ColorFormat::RGBA32;
-        img.color_space = ColorSpace::Srgb;
-        img.compression = {0, 0};
-        img.version = ContainerVersion::V6;
-        img.origin = Origin::TopLeft;
-        img.layers = {{MipLevel{src.width, src.height, std::move(src.rgba)}}};
-        img.num_layers = 1;
-        img.num_mipmaps = 1;
-        return img;
+    // Native source formats (PNG/JPG/DDS) — decoded in place without going
+    // through the GS2D container. `load_source_image` already handles these
+    // and yields the full mip chain / layer array for DDS inputs, so the
+    // decoder CLI can write DDS → PNG/JPG/ASTC/raw directly.
+    if (looks_like_png(data, size) || looks_like_jpg(data, size) ||
+        ddsio::looks_like_dds(data, size)) {
+        return load_source_image(data, size);
     }
 
     if (looks_like_astc(data, size)) {
@@ -223,8 +215,17 @@ Image decode(const std::uint8_t* data, std::size_t size) {
 }
 
 Image load(const std::uint8_t* data, std::size_t size) {
+    // Allow inspecting native source formats directly. For PNG/JPG the
+    // returned Image is uncompressed single-mip; for DDS we preserve the
+    // full mip chain and array length, which is exactly what `inspect`
+    // wants to report.
+    if (data != nullptr && size >= 4 &&
+        (looks_like_png(data, size) || looks_like_jpg(data, size) ||
+         ddsio::looks_like_dds(data, size))) {
+        return load_source_image(data, size);
+    }
     if (!container::is_gs2d(data, size)) {
-        invalid("loader expects a GS2D container");
+        invalid("loader expects a GS2D container, PNG, JPG or DDS");
     }
     auto dec = codec::decode_container(data, size);
     Image img;
