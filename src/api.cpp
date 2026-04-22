@@ -13,6 +13,7 @@
 #include "codec.hpp"
 #include "color_format.hpp"
 #include "container.hpp"
+#include "dds_io.hpp"
 #include "flip.hpp"
 #include "image_io.hpp"
 #include "mipgen.hpp"
@@ -225,69 +226,149 @@ Image load(const std::uint8_t* data, std::size_t size) {
     return img;
 }
 
+namespace {
+
+// Build the RGBA8 mip chain for one layer, either by inheriting the chain that
+// already lives inside `src_layer` (DDS case) or by downsampling from the base.
+// Returns per-mip (width, height) pairs via `out_sizes` and per-mip RGBA bytes
+// via the return value.
+std::vector<std::vector<std::uint8_t>> build_layer_chain(
+    const std::vector<MipLevel>& src_layer,
+    int base_w, int base_h,
+    int num_mips, bool inherit_mipmaps,
+    bool flip, Origin src_origin, Origin dst_origin,
+    std::vector<std::pair<int, int>>& out_sizes) {
+
+    out_sizes.clear();
+    std::vector<std::vector<std::uint8_t>> mips;
+
+    auto maybe_flip = [&](std::vector<std::uint8_t>& px, int w, int h) {
+        if (flip && src_origin != dst_origin) {
+            flipops::flip_vertical(px.data(), w, h, 4);
+        }
+    };
+
+    const bool inherit =
+        inherit_mipmaps && src_layer.size() > 1 &&
+        static_cast<int>(src_layer.size()) >= num_mips;
+
+    if (inherit) {
+        mips.reserve(static_cast<std::size_t>(num_mips));
+        out_sizes.reserve(static_cast<std::size_t>(num_mips));
+        for (int i = 0; i < num_mips; ++i) {
+            const auto& m = src_layer[static_cast<std::size_t>(i)];
+            std::vector<std::uint8_t> px = m.data;
+            maybe_flip(px, m.width, m.height);
+            mips.push_back(std::move(px));
+            out_sizes.emplace_back(m.width, m.height);
+        }
+    } else {
+        std::vector<std::uint8_t> base = src_layer.at(0).data;
+        maybe_flip(base, base_w, base_h);
+        mips = mip::build_chain_rgba8(base.data(), base_w, base_h, num_mips, out_sizes);
+    }
+    return mips;
+}
+
+// Nearest-neighbour resize of an RGBA8 layer's base mip.
+void resize_base_inplace(std::vector<std::uint8_t>& rgba, int& w, int& h,
+                         int nw, int nh) {
+    if (nw <= 0 || nh <= 0 || (nw == w && nh == h)) return;
+    std::vector<std::uint8_t> dst(static_cast<std::size_t>(nw) * nh * 4);
+    for (int y = 0; y < nh; ++y) {
+        const int sy = std::min(h - 1, (y * h) / nh);
+        for (int x = 0; x < nw; ++x) {
+            const int sx = std::min(w - 1, (x * w) / nw);
+            std::memcpy(&dst[(y * nw + x) * 4], &rgba[(sy * w + sx) * 4], 4);
+        }
+    }
+    rgba = std::move(dst);
+    w = nw;
+    h = nh;
+}
+
+}  // namespace
+
 std::vector<std::uint8_t> encode(const Image& src, const EncodeOptions& opts) {
     if (src.layers.empty() || src.layers[0].empty()) {
         invalid("empty image");
     }
-    // Convert base mip (mip 0) to RGBA8 if needed.
+
+    // 2DArray fast path: when the caller asks us to inherit layers and the
+    // source image already packs every slice in `src.layers`, encode them all
+    // here without forcing the caller to split and re-pass them.
+    const bool treat_as_array =
+        opts.inherit_layers && src.layers.size() > 1 &&
+        opts.texture_type == TextureType::TwoDArray;
+
     const auto& base = src.layers[0][0];
-    std::vector<std::uint8_t> rgba = base.data;
     int w = base.width;
     int h = base.height;
 
-    // Apply resize (nearest) if requested.
-    if (opts.resize) {
-        const int nw = opts.resize->first;
-        const int nh = opts.resize->second;
-        if (nw > 0 && nh > 0 && (nw != w || nh != h)) {
-            std::vector<std::uint8_t> dst(static_cast<std::size_t>(nw) * nh * 4);
-            for (int y = 0; y < nh; ++y) {
-                const int sy = std::min(h - 1, (y * h) / nh);
-                for (int x = 0; x < nw; ++x) {
-                    const int sx = std::min(w - 1, (x * w) / nw);
-                    std::memcpy(&dst[(y * nw + x) * 4], &rgba[(sy * w + sx) * 4], 4);
-                }
-            }
-            rgba = std::move(dst);
-            w = nw;
-            h = nh;
+    // Resize is only meaningful for the non-inherit path.
+    const bool want_resize = opts.resize.has_value();
+    if (want_resize) {
+        w = opts.resize->first;
+        h = opts.resize->second;
+    }
+
+    // Decide final mip count.
+    int num_mips;
+    const bool inherit_mipmaps =
+        opts.inherit_mipmaps && !want_resize &&
+        src.layers[0].size() > 1;
+    if (inherit_mipmaps) {
+        // Honour the source chain verbatim; callers expect "herdar mipmaps".
+        num_mips = static_cast<int>(src.layers[0].size());
+    } else {
+        num_mips = resolve_num_mipmaps_request(opts.mipmaps, w, h);
+    }
+
+    const bool flip = opts.ideal_origin != src.origin;
+    const std::uint32_t flip_mode = (opts.ideal_origin == Origin::BottomLeft) ? 1u : 0u;
+
+    const int num_layers = treat_as_array ? static_cast<int>(src.layers.size()) : 1;
+
+    std::vector<std::vector<std::uint8_t>> combined_mips(
+        static_cast<std::size_t>(num_mips));
+
+    for (int L = 0; L < num_layers; ++L) {
+        const auto& src_layer = src.layers[static_cast<std::size_t>(L)];
+
+        // Optional resize of the base when caller requests it.
+        std::vector<MipLevel> resized_layer;
+        const std::vector<MipLevel>* layer_ptr = &src_layer;
+        if (want_resize && !inherit_mipmaps) {
+            resized_layer.push_back(src_layer.at(0));
+            resize_base_inplace(resized_layer[0].data,
+                                resized_layer[0].width, resized_layer[0].height,
+                                opts.resize->first, opts.resize->second);
+            layer_ptr = &resized_layer;
+        }
+
+        std::vector<std::pair<int, int>> sizes;
+        auto chain = build_layer_chain(
+            *layer_ptr, w, h, num_mips, inherit_mipmaps,
+            flip, src.origin, opts.ideal_origin, sizes);
+
+        for (int mip = 0; mip < num_mips; ++mip) {
+            auto blocks = astc::compress_rgba8(
+                chain[mip].data(), sizes[mip].first, sizes[mip].second,
+                opts.block_size.x, opts.block_size.y,
+                opts.quality, opts.color_space);
+            combined_mips[mip].insert(combined_mips[mip].end(),
+                                      blocks.begin(), blocks.end());
         }
     }
 
-    // Flip vertically if the target requires bottomLeft but source is topLeft.
-    std::uint32_t flip_mode = 0;
-    if (opts.ideal_origin == Origin::BottomLeft) {
-        flipops::flip_vertical(rgba.data(), w, h, 4);
-        flip_mode = 1;
-    }
-
-    // Build mip chain.
-    int num_mips = resolve_num_mipmaps_request(opts.mipmaps, w, h);
-    std::vector<std::pair<int, int>> mip_sizes;
-    auto mip_rgba = mip::build_chain_rgba8(rgba.data(), w, h, num_mips, mip_sizes);
-
-    // ASTC compress every mip level.
-    std::vector<std::vector<std::uint8_t>> mip_blocks;
-    mip_blocks.reserve(mip_rgba.size());
-    for (std::size_t i = 0; i < mip_rgba.size(); ++i) {
-        auto [mw, mh] = mip_sizes[i];
-        auto blocks = astc::compress_rgba8(
-            mip_rgba[i].data(), mw, mh,
-            opts.block_size.x, opts.block_size.y,
-            opts.quality, opts.color_space);
-        mip_blocks.push_back(std::move(blocks));
-    }
-
-    const int mip_count_total = static_cast<int>(mip_blocks.size());
     const std::uint32_t fmt_code = format_code_for_block(opts.block_size.x, opts.block_size.y);
-
     if (opts.target_game == TargetGame::FS20) {
-        return codec::encode_container_v4(mip_blocks, w, h);
+        return codec::encode_container_v4(combined_mips, w, h);
     }
     return codec::encode_container_v6(
-        mip_blocks, w, h, /*num_layers=*/1,
+        combined_mips, w, h, num_layers,
         opts.block_size.x, opts.block_size.y,
-        fmt_code, flip_mode, mip_count_total);
+        fmt_code, flip_mode, num_mips);
 }
 
 std::vector<std::uint8_t> encode_many(
@@ -358,6 +439,30 @@ Image load_source_image(const std::uint8_t* data, std::size_t size,
         img.num_mipmaps = 1;
         img.compression = {0, 0};
         img.layers = {{MipLevel{loaded.width, loaded.height, std::move(loaded.rgba)}}};
+        return img;
+    }
+
+    if (ddsio::looks_like_dds(data, size)) {
+        auto dds = ddsio::decode_dds(data, size);
+        Image img;
+        img.width  = dds.width;
+        img.height = dds.height;
+        img.color_format = ColorFormat::RGBA32;
+        img.color_space  = ColorSpace::Srgb;
+        img.origin       = Origin::TopLeft;           // DDS uses top-left by convention
+        img.num_layers   = std::max(1, dds.num_layers);
+        img.num_mipmaps  = std::max(1, dds.num_mipmaps);
+        img.type = img.num_layers > 1 ? TextureType::TwoDArray : TextureType::TwoD;
+        img.compression = {0, 0};
+        img.layers.resize(static_cast<std::size_t>(img.num_layers));
+        for (int L = 0; L < img.num_layers; ++L) {
+            const auto& src_layer = dds.layers[L];
+            auto& dst_layer = img.layers[L];
+            dst_layer.reserve(src_layer.mips.size());
+            for (const auto& m : src_layer.mips) {
+                dst_layer.push_back(MipLevel{m.width, m.height, m.rgba});
+            }
+        }
         return img;
     }
 

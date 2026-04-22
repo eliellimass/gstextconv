@@ -71,6 +71,7 @@ add_library(gstextconv_core STATIC
     src/codec.cpp
     src/astc_bridge.cpp
     src/image_io.cpp
+    src/dds_io.cpp
     src/color_format.cpp
     src/mipgen.cpp
     src/flip.cpp

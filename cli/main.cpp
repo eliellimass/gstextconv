@@ -584,12 +584,13 @@ int run_encoder(int argc, char** argv, int start) {
     ColorFormat raw_fmt     = ColorFormat::RGBA32;
     if (auto rf = args.get({"raw-format"})) raw_fmt = parse_color_format(*rf);
 
-    auto inputs = collect_inputs(args, {".png", ".jpg", ".jpeg"});
+    auto inputs = collect_inputs(args, {".png", ".jpg", ".jpeg", ".dds"});
     if (inputs.empty()) {
         throw Error(Error::Code::InvalidFile, "encoder: no inputs provided");
     }
 
     if (auto g = args.get({"g", "target-game"})) opts.target_game = parse_target_game(*g);
+    const bool user_set_mipmaps = args.get({"m", "num-mipmaps", "mipmaps"}).has_value();
     if (auto m = args.get({"m", "num-mipmaps", "mipmaps"})) {
         if (*m == "max" || *m == "auto") {
             opts.mipmaps = -1;
@@ -598,6 +599,8 @@ int run_encoder(int argc, char** argv, int start) {
             if (opts.mipmaps < 0) opts.mipmaps = -1;
         }
     }
+    const bool user_set_origin  = args.get({"n", "ideal-origin"}).has_value();
+    const bool user_set_layers  = args.get({"t", "texture-type"}).has_value();
     if (auto b = args.get({"k", "block-size"})) opts.block_size = parse_block_size(*b);
     if (auto q = args.get({"q", "quality"}))     opts.quality = parse_quality(*q);
     if (auto s = args.get({"s", "color-space"})) opts.color_space = parse_color_space(*s);
@@ -632,24 +635,45 @@ int run_encoder(int argc, char** argv, int start) {
     const bool delete_source   = args.has({"x", "delete-source-file"});
     const bool verbose         = args.has({"v", "verbose"});
 
-    auto load_input = [&](const fs::path& in) -> Image {
+    auto load_input = [&](const fs::path& in, EncodeOptions& per_file) -> Image {
         auto bytes = read_file(in);
+        Image img;
         if (raw_inputs) {
             if (raw_width <= 0 || raw_height <= 0) {
                 throw Error(Error::Code::UnsupportedFormat,
                             "--raw-rgba requires --raw-width and --raw-height");
             }
-            return load_source_image(bytes.data(), bytes.size(),
-                                     raw_width, raw_height, raw_fmt);
+            img = load_source_image(bytes.data(), bytes.size(),
+                                    raw_width, raw_height, raw_fmt);
+        } else {
+            img = load_source_image(bytes.data(), bytes.size());
         }
-        return load_source_image(bytes.data(), bytes.size());
+        // If the source already carries a mip chain or multiple array slices
+        // (e.g. a DDS), inherit them by default — this is the "conversão dds
+        // direta" path. The user can still override with -m or -t.
+        const bool has_chain  = !img.layers.empty() && img.layers[0].size() > 1;
+        const bool has_layers = img.layers.size() > 1;
+        if (has_chain && !user_set_mipmaps) {
+            per_file.inherit_mipmaps = true;
+        }
+        if (has_layers && !user_set_layers) {
+            per_file.texture_type   = TextureType::TwoDArray;
+            per_file.inherit_layers = true;
+        } else if (has_layers) {
+            per_file.inherit_layers = per_file.texture_type == TextureType::TwoDArray;
+        }
+        if (!user_set_origin) {
+            per_file.ideal_origin = img.origin;  // preserve source orientation
+        }
+        return img;
     };
 
     if (!preserve_path && inputs.size() == 1 && !output_file.empty()) {
         const auto& in = inputs.front();
         VerboseClock clock;
-        auto src = load_input(in);
-        auto enc = encode(src, opts);
+        EncodeOptions per_file = opts;
+        auto src = load_input(in, per_file);
+        auto enc = encode(src, per_file);
         if (!overwrite && fs::exists(output_file)) {
             throw Error(Error::Code::ConversionFailed,
                         "output exists: " + output_file.string());
@@ -684,8 +708,9 @@ int run_encoder(int argc, char** argv, int start) {
             }
             continue;
         }
-        auto src = load_input(in);
-        auto enc = encode(src, opts);
+        EncodeOptions per_file = opts;
+        auto src = load_input(in, per_file);
+        auto enc = encode(src, per_file);
         write_file(out, enc);
         if (delete_source && in != out && fs::exists(in)) fs::remove(in);
         if (verbose) {
