@@ -102,8 +102,7 @@ gstextconv encoder
 -r, --recursive
 -a, --raw-rgba
 -g, --target-game: fs20 (v3), fs23 (v6), fs26 (provavél v6+).
--m, --mipsmaps: número de mipmaps da imagem.
--b, --block-size: (4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 8x8, 10x5, 10x6, 10x8, 10x10, 12x10, 12x12)
+-k, --block-size: (4x4, 5x4, 5x5, 6x5, 6x6, 8x5, 8x6, 8x8, 10x5, 10x6, 10x8, 10x10, 12x10, 12x12)
 -q, --quality: fast, medium, thorough
 -s, --color-space: srgb, linear, alpha
 -c, --color-format:
@@ -167,7 +166,7 @@ gstextconv inspect
 -h, --help          # mostra os argumentos deste subcomando
 ```
 version:
-1.0.0
+1.0.1
 license:
 Copyright (c) 2026 snowbit64
   Permission is hereby granted, free of charge, to any person obtaining a copy
