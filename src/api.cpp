@@ -151,12 +151,12 @@ Image decode(const std::uint8_t* data, std::size_t size) {
     img.version = (dec.header.version >= 6) ? ContainerVersion::V6
                                              : ContainerVersion::V3;
     img.origin = dec.header.flip_mode ? Origin::BottomLeft : Origin::TopLeft;
-    img.num_layers = std::max<int>(1, dec.header.field_count);
+    const int num_layers = std::max<int>(1, dec.num_layers);
+    img.num_layers = num_layers;
     img.num_mipmaps = static_cast<int>(dec.mips.size());
+    img.type = num_layers > 1 ? TextureType::TwoDArray : TextureType::TwoD;
     img.compression = {dec.block_x, dec.block_y};
 
-    img.layers.resize(1);
-    img.layers[0].reserve(dec.mips.size());
     ColorFormat src_fmt = ColorFormat::RGBA32;
     if (!dec.is_astc) {
         switch (dec.bytes_per_pixel) {
@@ -170,36 +170,54 @@ Image decode(const std::uint8_t* data, std::size_t size) {
         }
         img.color_format = src_fmt;
     }
-    for (const auto& m : dec.mips) {
-        if (m.data.empty()) continue;
-        MipLevel lvl;
-        lvl.width = m.width;
-        lvl.height = m.height;
-        if (dec.is_astc) {
-            lvl.data = astc::decompress_to_rgba8(
-                m.data.data(), m.data.size(),
-                m.width, m.height, dec.block_x, dec.block_y,
-                ColorSpace::Srgb);
-        } else {
-            const std::size_t need =
-                static_cast<std::size_t>(m.width) * m.height *
-                cfmt::bytes_per_pixel(src_fmt);
-            if (m.data.size() >= need) {
-                lvl.data = cfmt::to_rgba8(
-                    m.data.data(),
-                    static_cast<std::size_t>(m.width),
-                    static_cast<std::size_t>(m.height),
-                    src_fmt);
+
+    img.layers.assign(static_cast<std::size_t>(num_layers), {});
+    for (int L = 0; L < num_layers; ++L) {
+        img.layers[L].reserve(dec.mips.size());
+        for (std::size_t m = 0; m < dec.mips.size(); ++m) {
+            const auto& shape = dec.mips[m];
+            // Prefer the per-layer buffer the codec filled in; fall back to
+            // the legacy shared buffer so single-layer textures still decode.
+            const std::vector<std::uint8_t>* raw = nullptr;
+            if (L < static_cast<int>(dec.layer_data.size()) &&
+                m < dec.layer_data[L].size() &&
+                !dec.layer_data[L][m].empty()) {
+                raw = &dec.layer_data[L][m];
+            } else if (!shape.data.empty()) {
+                raw = &shape.data;
             } else {
-                lvl.data.assign(
-                    static_cast<std::size_t>(m.width) * m.height * 4, 0);
+                continue;
             }
+            MipLevel lvl;
+            lvl.width  = shape.width;
+            lvl.height = shape.height;
+            if (dec.is_astc) {
+                lvl.data = astc::decompress_to_rgba8(
+                    raw->data(), raw->size(),
+                    shape.width, shape.height, dec.block_x, dec.block_y,
+                    ColorSpace::Srgb);
+            } else {
+                const std::size_t need =
+                    static_cast<std::size_t>(shape.width) * shape.height *
+                    cfmt::bytes_per_pixel(src_fmt);
+                if (raw->size() >= need) {
+                    lvl.data = cfmt::to_rgba8(
+                        raw->data(),
+                        static_cast<std::size_t>(shape.width),
+                        static_cast<std::size_t>(shape.height),
+                        src_fmt);
+                } else {
+                    lvl.data.assign(
+                        static_cast<std::size_t>(shape.width) * shape.height * 4, 0);
+                }
+            }
+            img.layers[L].push_back(std::move(lvl));
         }
-        img.layers[0].push_back(std::move(lvl));
     }
-    // The layer data is RGBA8 after the loop.
+    // Layer data is RGBA8 after the decode loop.
     img.color_format = ColorFormat::RGBA32;
-    img.num_mipmaps = static_cast<int>(img.layers[0].size());
+    img.num_mipmaps = img.layers.empty() ? 0 :
+                      static_cast<int>(img.layers[0].size());
 
     return img;
 }
@@ -216,12 +234,26 @@ Image load(const std::uint8_t* data, std::size_t size) {
     img.color_space = ColorSpace::Srgb;
     img.version = (dec.header.version >= 6) ? ContainerVersion::V6 : ContainerVersion::V3;
     img.origin = dec.header.flip_mode ? Origin::BottomLeft : Origin::TopLeft;
-    img.num_layers = std::max<int>(1, dec.header.field_count);
+    const int num_layers = std::max<int>(1, dec.num_layers);
+    img.num_layers = num_layers;
     img.num_mipmaps = static_cast<int>(dec.mips.size());
+    img.type = num_layers > 1 ? TextureType::TwoDArray : TextureType::TwoD;
     img.compression = {dec.block_x, dec.block_y};
-    img.layers.resize(1);
-    for (const auto& m : dec.mips) {
-        img.layers[0].push_back(MipLevel{m.width, m.height, m.data});
+    img.layers.assign(static_cast<std::size_t>(num_layers), {});
+    for (int L = 0; L < num_layers; ++L) {
+        img.layers[L].reserve(dec.mips.size());
+        for (std::size_t m = 0; m < dec.mips.size(); ++m) {
+            const auto& shape = dec.mips[m];
+            const std::vector<std::uint8_t>* raw = nullptr;
+            if (L < static_cast<int>(dec.layer_data.size()) &&
+                m < dec.layer_data[L].size() &&
+                !dec.layer_data[L][m].empty()) {
+                raw = &dec.layer_data[L][m];
+            } else {
+                raw = &shape.data;
+            }
+            img.layers[L].push_back(MipLevel{shape.width, shape.height, *raw});
+        }
     }
     return img;
 }

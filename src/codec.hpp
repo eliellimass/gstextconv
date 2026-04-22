@@ -19,13 +19,20 @@ struct Mip {
 };
 
 /// Result of decoding a GS2D container. Mip 0 is the base (largest) mip.
+///
+/// For multi-layer textures (2DArray / cubemap) `layer_data[L][M]` holds the
+/// raw per-layer-per-mip payload (ASTC blocks or raw pixels). The `mips`
+/// vector keeps layer 0's bytes too so single-layer callers can keep using
+/// the old shape without re-indexing.
 struct DecodedContainer {
     container::Header header{};
     bool is_astc = false;
     int  block_x = 0;
     int  block_y = 0;
     int  bytes_per_pixel = 0;
+    int  num_layers = 1;
     std::vector<Mip> mips;
+    std::vector<std::vector<std::vector<std::uint8_t>>> layer_data;
 };
 
 DecodedContainer decode_container(const std::uint8_t* data, std::size_t size);

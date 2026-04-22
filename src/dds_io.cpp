@@ -80,6 +80,50 @@ std::size_t compute_block_size(int w, int h, std::size_t bytes_per_block) {
 }
 
 // ---------------------------------------------------------------------------
+// Half-precision (IEEE 754 binary16) -> float32 decoder.
+// Used to expand DXGI_FORMAT_R16G16B16A16_FLOAT (DXGI code 10) and friends
+// back to normalised 8-bit RGBA for the encoder pipeline.
+// ---------------------------------------------------------------------------
+
+float half_to_float(std::uint16_t h) noexcept {
+    const std::uint32_t sign =  (h >> 15) & 0x1u;
+    const std::uint32_t exp  =  (h >> 10) & 0x1fu;
+    const std::uint32_t mant =   h        & 0x3ffu;
+    std::uint32_t bits;
+    if (exp == 0) {
+        if (mant == 0) {
+            bits = sign << 31;  // signed zero
+        } else {
+            // Subnormal: renormalise into a float32.
+            std::uint32_t m = mant;
+            int e = 1;
+            while ((m & 0x400u) == 0) { m <<= 1; ++e; }
+            m &= 0x3ffu;
+            bits = (sign << 31) |
+                   ((static_cast<std::uint32_t>(127 - 15 - e + 1)) << 23) |
+                   (m << 13);
+        }
+    } else if (exp == 0x1fu) {
+        // Inf / NaN
+        bits = (sign << 31) | (0xffu << 23) | (mant << 13);
+    } else {
+        bits = (sign << 31) |
+               (static_cast<std::uint32_t>(exp - 15 + 127) << 23) |
+               (mant << 13);
+    }
+    float f;
+    std::memcpy(&f, &bits, sizeof(f));
+    return f;
+}
+
+std::uint8_t float_to_unorm8(float f) noexcept {
+    if (!(f == f))    return 0;           // NaN -> 0
+    if (f <= 0.0f)    return 0;
+    if (f >= 1.0f)    return 255;
+    return static_cast<std::uint8_t>(f * 255.0f + 0.5f);
+}
+
+// ---------------------------------------------------------------------------
 // BC1 / BC3 / BC4 block decoders
 // ---------------------------------------------------------------------------
 
@@ -277,13 +321,17 @@ struct DecodeOut {
 };
 
 enum class DecodeKind {
-    Masked,   // uncompressed RGBA with channel masks (from the DX9 header)
+    Masked,       // uncompressed RGBA with channel masks (from the DX9 header)
     BC1,
     BC3,
-    BC4,      // single-channel; alpha channel is duplicated to RGB
-    Rgba8,    // explicit R8G8B8A8
-    Bgra8,    // explicit B8G8R8A8
-    Rgbx8,    // 32-bit RGB, ignore 4th byte
+    BC4,          // single-channel; alpha channel is duplicated to RGB
+    Rgba8,        // explicit R8G8B8A8
+    Bgra8,        // explicit B8G8R8A8
+    Rgbx8,        // 32-bit RGB, ignore 4th byte
+    Rgba16Float,  // DXGI_FORMAT_R16G16B16A16_FLOAT (code 10), clamped to [0,1]
+    Rgba16Unorm,  // DXGI_FORMAT_R16G16B16A16_UNORM (code 11)
+    Rgba16Snorm,  // DXGI_FORMAT_R16G16B16A16_SNORM (code 13)
+    Rgba32Float,  // DXGI_FORMAT_R32G32B32A32_FLOAT (code 2),  clamped to [0,1]
 };
 
 struct FormatInfo {
@@ -296,6 +344,14 @@ FormatInfo determine_format(const PixelFormat& pf, std::uint32_t dxgi_format) {
     FormatInfo f;
     if (dxgi_format != 0) {
         switch (dxgi_format) {
+            case 2:            // R32G32B32A32_FLOAT
+                f.kind = DecodeKind::Rgba32Float; f.bits = 128; return f;
+            case 10:           // R16G16B16A16_FLOAT (DXGI 10 — FS sample arrays)
+                f.kind = DecodeKind::Rgba16Float; f.bits = 64; return f;
+            case 11:           // R16G16B16A16_UNORM
+                f.kind = DecodeKind::Rgba16Unorm; f.bits = 64; return f;
+            case 13:           // R16G16B16A16_SNORM
+                f.kind = DecodeKind::Rgba16Snorm; f.bits = 64; return f;
             case 28: case 29:  // R8G8B8A8_UNORM / _SRGB
                 f.kind = DecodeKind::Rgba8; f.bits = 32; return f;
             case 87: case 91:  // B8G8R8A8_UNORM / _SRGB
@@ -347,6 +403,12 @@ std::size_t mip_size(const FormatInfo& f, int w, int h) {
         case DecodeKind::Rgba8:
         case DecodeKind::Bgra8:
         case DecodeKind::Rgbx8: return static_cast<std::size_t>(w) * h * 4;
+        case DecodeKind::Rgba16Float:
+        case DecodeKind::Rgba16Unorm:
+        case DecodeKind::Rgba16Snorm:
+            return static_cast<std::size_t>(w) * h * 8;
+        case DecodeKind::Rgba32Float:
+            return static_cast<std::size_t>(w) * h * 16;
         case DecodeKind::Masked: return compute_uncompressed_size(f.bits, w, h);
     }
     return 0;
@@ -422,6 +484,91 @@ Mip decode_mip(const std::uint8_t* src, std::size_t size,
                 m.rgba[i + 1] = src[i + 1];
                 m.rgba[i + 2] = src[i + 0];
                 m.rgba[i + 3] = 255;
+            }
+            break;
+        }
+        case DecodeKind::Rgba16Float: {
+            const std::size_t px_count = static_cast<std::size_t>(w) * h;
+            const std::size_t expected = px_count * 8;
+            if (size < expected) {
+                throw Error(Error::Code::InvalidFile,
+                            "dds: RGBA16F payload truncated");
+            }
+            m.rgba.resize(px_count * 4);
+            for (std::size_t i = 0; i < px_count; ++i) {
+                const std::uint8_t* p = src + i * 8;
+                float r = half_to_float(static_cast<std::uint16_t>(p[0] | (p[1] << 8)));
+                float g = half_to_float(static_cast<std::uint16_t>(p[2] | (p[3] << 8)));
+                float b = half_to_float(static_cast<std::uint16_t>(p[4] | (p[5] << 8)));
+                float a = half_to_float(static_cast<std::uint16_t>(p[6] | (p[7] << 8)));
+                m.rgba[i * 4 + 0] = float_to_unorm8(r);
+                m.rgba[i * 4 + 1] = float_to_unorm8(g);
+                m.rgba[i * 4 + 2] = float_to_unorm8(b);
+                m.rgba[i * 4 + 3] = float_to_unorm8(a);
+            }
+            break;
+        }
+        case DecodeKind::Rgba16Unorm: {
+            const std::size_t px_count = static_cast<std::size_t>(w) * h;
+            const std::size_t expected = px_count * 8;
+            if (size < expected) {
+                throw Error(Error::Code::InvalidFile,
+                            "dds: RGBA16 UNORM payload truncated");
+            }
+            m.rgba.resize(px_count * 4);
+            for (std::size_t i = 0; i < px_count; ++i) {
+                const std::uint8_t* p = src + i * 8;
+                auto rd16 = [&](int off) -> std::uint16_t {
+                    return static_cast<std::uint16_t>(p[off] | (p[off + 1] << 8));
+                };
+                m.rgba[i * 4 + 0] = static_cast<std::uint8_t>(rd16(0) >> 8);
+                m.rgba[i * 4 + 1] = static_cast<std::uint8_t>(rd16(2) >> 8);
+                m.rgba[i * 4 + 2] = static_cast<std::uint8_t>(rd16(4) >> 8);
+                m.rgba[i * 4 + 3] = static_cast<std::uint8_t>(rd16(6) >> 8);
+            }
+            break;
+        }
+        case DecodeKind::Rgba16Snorm: {
+            const std::size_t px_count = static_cast<std::size_t>(w) * h;
+            const std::size_t expected = px_count * 8;
+            if (size < expected) {
+                throw Error(Error::Code::InvalidFile,
+                            "dds: RGBA16 SNORM payload truncated");
+            }
+            m.rgba.resize(px_count * 4);
+            auto snorm16_to_unorm8 = [](std::int16_t v) -> std::uint8_t {
+                // Remap [-32767, 32767] to [0, 255] per D3D11 SNORM rules.
+                const float n = static_cast<float>(v) / 32767.0f;
+                const float u = (n * 0.5f) + 0.5f;
+                return float_to_unorm8(u);
+            };
+            for (std::size_t i = 0; i < px_count; ++i) {
+                const std::uint8_t* p = src + i * 8;
+                auto rd_s16 = [&](int off) -> std::int16_t {
+                    return static_cast<std::int16_t>(p[off] | (p[off + 1] << 8));
+                };
+                m.rgba[i * 4 + 0] = snorm16_to_unorm8(rd_s16(0));
+                m.rgba[i * 4 + 1] = snorm16_to_unorm8(rd_s16(2));
+                m.rgba[i * 4 + 2] = snorm16_to_unorm8(rd_s16(4));
+                m.rgba[i * 4 + 3] = snorm16_to_unorm8(rd_s16(6));
+            }
+            break;
+        }
+        case DecodeKind::Rgba32Float: {
+            const std::size_t px_count = static_cast<std::size_t>(w) * h;
+            const std::size_t expected = px_count * 16;
+            if (size < expected) {
+                throw Error(Error::Code::InvalidFile,
+                            "dds: RGBA32F payload truncated");
+            }
+            m.rgba.resize(px_count * 4);
+            for (std::size_t i = 0; i < px_count; ++i) {
+                float comp[4];
+                std::memcpy(comp, src + i * 16, sizeof(comp));
+                m.rgba[i * 4 + 0] = float_to_unorm8(comp[0]);
+                m.rgba[i * 4 + 1] = float_to_unorm8(comp[1]);
+                m.rgba[i * 4 + 2] = float_to_unorm8(comp[2]);
+                m.rgba[i * 4 + 3] = float_to_unorm8(comp[3]);
             }
             break;
         }
@@ -507,7 +654,11 @@ LoadedDDS decode_dds(const std::uint8_t* data, std::size_t size) {
     out.has_alpha =
         (pf.flags & DDPF_ALPHAPIXELS) != 0 ||
         (finfo.kind == DecodeKind::Rgba8 || finfo.kind == DecodeKind::Bgra8 ||
-         finfo.kind == DecodeKind::BC3);
+         finfo.kind == DecodeKind::BC3 ||
+         finfo.kind == DecodeKind::Rgba16Float ||
+         finfo.kind == DecodeKind::Rgba16Unorm ||
+         finfo.kind == DecodeKind::Rgba16Snorm ||
+         finfo.kind == DecodeKind::Rgba32Float);
 
     out.layers.resize(static_cast<std::size_t>(total_slices));
     const std::uint8_t* cursor = data + payload_off;

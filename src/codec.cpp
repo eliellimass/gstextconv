@@ -136,6 +136,19 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
             mips[mip].height = static_cast<int>(mip_dim(hdr.dim_y, mip));
         }
 
+        // Each v6 segment packs every array slice for one mip level as
+        // `num_layers` contiguous single-layer buffers. The header's
+        // `field_count` carries the slice count; fall back to 1 when the
+        // value is obviously bogus.
+        int num_layers = static_cast<int>(hdr.field_count);
+        if (num_layers < 1 || num_layers > 4096) num_layers = 1;
+
+        // per_layer_seg_bytes[mip_level] tracks the single-layer slice size
+        // we commit to when splitting the decompressed segment; segments we
+        // haven't touched yet stay at 0.
+        std::vector<std::size_t> per_layer_seg_bytes(total_mips, 0);
+        std::vector<std::vector<std::uint8_t>> full_seg(total_mips);
+
         // For textures with more than 4 mip levels, segment 3 aggregates the
         // remaining levels (base mip + tail). The current decoder surfaces
         // only the last four segments as distinct buffers; any extra mip
@@ -151,9 +164,12 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
             const int mip_level = (num_segs - 1) - i;
             const std::size_t w = mip_dim(hdr.dim_x, mip_level);
             const std::size_t h = mip_dim(hdr.dim_y, mip_level);
-            std::size_t expected_raw =
+            const std::size_t expected_raw =
                 is_astc ? mip_raw_astc(w, h, block.first, block.second)
                         : mip_raw_uncompressed(w, h, bpp);
+            // Decompress assuming `num_layers` copies so zlib has a sane hint.
+            const std::size_t expected_all =
+                expected_raw * static_cast<std::size_t>(num_layers);
 
             std::vector<std::uint8_t> seg_data;
             const std::uint8_t* src = data + off;
@@ -162,20 +178,62 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
                 (src[1] == 0x01 || src[1] == 0x9C || src[1] == 0xDA ||
                  src[1] == 0x5E || src[1] == 0x7D);
             if (zlib_framed) {
-                seg_data = container::zlib_decompress(src, sz, expected_raw);
+                seg_data = container::zlib_decompress(
+                    src, sz, expected_all > 0 ? expected_all : expected_raw);
             } else {
                 seg_data.assign(src, src + sz);
             }
 
-            // Multi-layer segment: size is an integer multiple of the expected
-            // single-layer mip size. Keep only the first layer for now.
-            if (expected_raw > 0 && seg_data.size() > expected_raw &&
+            // Pick the slice size for this mip. When the segment is exactly
+            // `num_layers * expected_raw` we trust the header's layer count;
+            // otherwise we fall back to whatever divides the segment evenly
+            // (keeps single-layer textures working when field_count is stale).
+            std::size_t per_layer = expected_raw;
+            if (expected_raw > 0 && seg_data.size() > 0 &&
                 seg_data.size() % expected_raw == 0) {
-                seg_data.resize(expected_raw);
+                per_layer = expected_raw;
+            } else if (num_layers > 0 && seg_data.size() > 0 &&
+                       seg_data.size() % num_layers == 0) {
+                per_layer = seg_data.size() / num_layers;
+            } else {
+                per_layer = seg_data.size();
             }
-            mips[mip_level].data = std::move(seg_data);
+
+            per_layer_seg_bytes[mip_level] = per_layer;
+            full_seg[mip_level] = std::move(seg_data);
+            mips[mip_level].data.assign(
+                full_seg[mip_level].begin(),
+                full_seg[mip_level].begin() +
+                    static_cast<std::ptrdiff_t>(std::min(per_layer,
+                                                         full_seg[mip_level].size())));
         }
+
         out.mips = std::move(mips);
+        out.num_layers = num_layers;
+
+        // Build layer_data[L][M] from each segment's per_layer slice.
+        out.layer_data.assign(static_cast<std::size_t>(num_layers),
+                              std::vector<std::vector<std::uint8_t>>(total_mips));
+        for (int mip_level = 0; mip_level < total_mips; ++mip_level) {
+            const auto& seg = full_seg[mip_level];
+            const std::size_t per_layer = per_layer_seg_bytes[mip_level];
+            if (seg.empty() || per_layer == 0) continue;
+            const int available_layers =
+                static_cast<int>(std::min<std::size_t>(
+                    seg.size() / per_layer,
+                    static_cast<std::size_t>(num_layers)));
+            for (int L = 0; L < available_layers; ++L) {
+                const std::size_t start = static_cast<std::size_t>(L) * per_layer;
+                out.layer_data[L][mip_level].assign(
+                    seg.begin() + static_cast<std::ptrdiff_t>(start),
+                    seg.begin() + static_cast<std::ptrdiff_t>(start + per_layer));
+            }
+            // Pad missing layers with layer 0's bytes so downstream code
+            // never reads out-of-range when the header lies about layers.
+            for (int L = available_layers; L < num_layers; ++L) {
+                out.layer_data[L][mip_level] = out.layer_data[0][mip_level];
+            }
+        }
     } else {
         // v4: continuous payload, infer ASTC block/mip count from total_payload_size.
         const std::size_t hdr_size = container::kHeaderV4;
@@ -275,7 +333,7 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
         }
 
         // Multi-layer (array / cubemap / 3D) ASTC with mip chain: payload is N
-        // layers of a full mip chain. Surface layer 0's mip chain.
+        // contiguous per-layer mip chains. Surface every layer.
         for (auto [bx, by] : kAstcBlocks) {
             std::size_t per_layer = 0;
             std::size_t w = hdr.dim_x, h = hdr.dim_y;
@@ -290,6 +348,10 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
                         out.block_y = by;
                         out.is_astc = true;
                         out.mips.resize(chain.size());
+                        out.num_layers = static_cast<int>(layers);
+                        out.layer_data.assign(
+                            layers,
+                            std::vector<std::vector<std::uint8_t>>(chain.size()));
                         std::size_t off = 0;
                         for (std::size_t k = 0; k < chain.size(); ++k) {
                             const auto [cw, ch] = chain[k];
@@ -298,6 +360,17 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
                             out.mips[k].height = static_cast<int>(ch);
                             out.mips[k].data.assign(payload + off, payload + off + ms);
                             off += ms;
+                        }
+                        for (std::size_t L = 0; L < layers; ++L) {
+                            std::size_t lo =
+                                L * per_layer;  // start of layer L
+                            for (std::size_t k = 0; k < chain.size(); ++k) {
+                                const auto [cw, ch] = chain[k];
+                                const std::size_t ms = mip_raw_astc(cw, ch, bx, by);
+                                out.layer_data[L][k].assign(
+                                    payload + lo, payload + lo + ms);
+                                lo += ms;
+                            }
                         }
                         return out;
                     }
@@ -319,6 +392,14 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
                     out.mips[0].width  = static_cast<int>(hdr.dim_x);
                     out.mips[0].height = static_cast<int>(hdr.dim_y);
                     out.mips[0].data.assign(payload, payload + per_layer);
+                    out.num_layers = static_cast<int>(layers);
+                    out.layer_data.assign(
+                        layers, std::vector<std::vector<std::uint8_t>>(1));
+                    for (std::size_t L = 0; L < layers; ++L) {
+                        out.layer_data[L][0].assign(
+                            payload + L * per_layer,
+                            payload + (L + 1) * per_layer);
+                    }
                     return out;
                 }
             }
@@ -339,6 +420,10 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
                         out.is_astc = false;
                         out.bytes_per_pixel = bpp;
                         out.mips.resize(chain.size());
+                        out.num_layers = static_cast<int>(layers);
+                        out.layer_data.assign(
+                            layers,
+                            std::vector<std::vector<std::uint8_t>>(chain.size()));
                         std::size_t off = 0;
                         for (std::size_t k = 0; k < chain.size(); ++k) {
                             const auto [cw, ch] = chain[k];
@@ -347,6 +432,17 @@ DecodedContainer decode_container(const std::uint8_t* data, std::size_t size) {
                             out.mips[k].height = static_cast<int>(ch);
                             out.mips[k].data.assign(payload + off, payload + off + ms);
                             off += ms;
+                        }
+                        for (std::size_t L = 0; L < layers; ++L) {
+                            std::size_t lo = L * per_layer;
+                            for (std::size_t k = 0; k < chain.size(); ++k) {
+                                const auto [cw, ch] = chain[k];
+                                const std::size_t ms =
+                                    mip_raw_uncompressed(cw, ch, bpp);
+                                out.layer_data[L][k].assign(
+                                    payload + lo, payload + lo + ms);
+                                lo += ms;
+                            }
                         }
                         return out;
                     }
