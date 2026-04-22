@@ -62,55 +62,77 @@ void print_encoder_help() {
         "gstextconv encoder [options]\n"
         "\n"
         "Inputs (at least one required):\n"
-        "  -f, --file <path>         single source image (png/jpg/raw)\n"
-        "  -b, --batch <path>        add another source (repeatable)\n"
-        "  -d, --dir <path>          every supported image in a folder\n"
-        "  -r, --recursive           walk --dir recursively\n"
+        "  -f, --file <path>                   single source image (png/jpg/raw)\n"
+        "  -b, --batch <path>                  add another source (repeatable)\n"
+        "  -d, --dir <path>                    every supported image in a folder\n"
+        "  -r, --recursive                     walk --dir recursively\n"
+        "  -a, --raw-rgba                      treat inputs as raw RGBA (needs\n"
+        "                                      --raw-width / --raw-height and\n"
+        "                                      optional --raw-format)\n"
+        "      --raw-width <N>                 width for raw inputs\n"
+        "      --raw-height <N>                height for raw inputs\n"
+        "      --raw-format <fmt>              color format of raw inputs\n"
+        "                                      (r8|rg16|rgb24|bgr24|rgba32|\n"
+        "                                       bgra32|rgba64f|rgba128f)\n"
         "\n"
         "Encoding options:\n"
-        "  -g, --target-game <fs20|fs23|fs26>   container version (default: fs23)\n"
-        "      --mipmaps <n>                    mipmap count (0 = auto)\n"
-        "      --block-size <NxM>               ASTC block size (default: 6x6)\n"
+        "  -g, --target-game <fs20|fs23|fs26>  container version (default: fs23)\n"
+        "  -m, --num-mipmaps <max|N>           mipmap count; N is ADDITIONAL\n"
+        "                                      mip levels beyond the base image\n"
+        "                                      (default: 0 = only the base mip)\n"
+        "  -k, --block-size <NxM>              ASTC block size (default: 6x6)\n"
         "  -q, --quality <fast|medium|thorough>\n"
         "  -s, --color-space <srgb|linear|alpha>\n"
-        "  -w, --resize <WxH>                   resize source before encode\n"
+        "  -c, --color-format <fmt>            storage color format (see above)\n"
+        "  -w, --resize <WxH>                  resize source before encode\n"
         "  -t, --texture-type <2d|2darray>\n"
         "  -n, --ideal-origin <topLeft|bottomLeft>\n"
+        "  -rc, --roughness-channel <CCCC>     channel layout for roughness,\n"
+        "                                      e.g. rgba or r,g,b,a\n"
+        "  -nmp, --normal-map-format <rg|rgb>\n"
         "\n"
         "Output:\n"
-        "  -o, --output <file>       single-output path (only when one input)\n"
-        "  -u, --output-dir <dir>    directory for batch outputs\n"
-        "  -O, --overwrite           overwrite existing files\n"
-        "  -p, --preserve-file-path  write output next to the source (overrides -o/-u)\n"
-        "  -x, --delete-source-file  delete the source file after a successful encode\n"
-        "  -v, --verbose             print a report for every processed file\n"
-        "  -h, --help                show this message\n";
+        "  -o, --output <file>                 single-output path (only when one input)\n"
+        "  -u, --output-dir <dir>              directory for batch outputs\n"
+        "  -O, --overwrite                     overwrite existing files\n"
+        "  -p, --preserve-file-path            write output next to the source (overrides -o/-u)\n"
+        "  -x, --delete-source-file            delete the source file after a successful encode\n"
+        "  -v, --verbose                       print a report for every processed file\n"
+        "  -h, --help                          show this message\n";
 }
 
 void print_decoder_help() {
     std::cout <<
-        "gstextconv decoder [options]\n"
+        "gstextconv decoder [<input>] [<output>] [options]\n"
         "\n"
         "Inputs (at least one required):\n"
-        "  -f, --file <path>         single GS2D/.ast file\n"
-        "  -b, --batch <path>        add another .ast (repeatable)\n"
-        "  -d, --dir <path>          every .ast in a folder\n"
-        "  -r, --recursive           walk --dir recursively\n"
+        "  -f, --file <path>                   single GS2D/.ast file\n"
+        "  -b, --batch <path>                  add another .ast (repeatable)\n"
+        "  -d, --dir <path>                    every .ast in a folder\n"
+        "  -r, --recursive                     walk --dir recursively\n"
         "\n"
         "Decoding options:\n"
-        "  -c, --channels <swizzle>  channel selection, e.g. 'rgba', 'r0b1'\n"
-        "  -i, --mip-index <n>       emit a specific mip level (default: 0)\n"
-        "  -L, --layer-index <n>     emit a specific array layer (default: 0)\n"
-        "  -g, --real-origin         keep bottomLeft orientation (no auto-flip)\n"
+        "      --format <png|jpg|astc|raw-rgba>\n"
+        "                                      output format (default: infer\n"
+        "                                      from -o extension or png)\n"
+        "  -c, --channels <swizzle>            channel selection, e.g. 'rgba', 'r0b1'\n"
+        "  -i, --mip-index <n>                 emit a specific mip level (default: 0)\n"
+        "  -m, --all-mips                      emit every mip level (uses --pattern)\n"
+        "  -L, --layer-index <n>               emit a specific array layer (default: 0)\n"
+        "  -l, --all-layers                    emit every array layer (uses --pattern)\n"
+        "  -g, --real-origin                   keep bottomLeft orientation (no auto-flip)\n"
+        "      --pattern <tpl>                 filename pattern for --all-mips/\n"
+        "                                      --all-layers (default:\n"
+        "                                      '{filename}-{mipIndex}-{layerIndex}.{format}')\n"
         "\n"
         "Output:\n"
-        "  -o, --output <file>       single-output path (extension picks format)\n"
-        "  -u, --output-dir <dir>    directory for batch outputs (.png)\n"
-        "  -O, --overwrite           overwrite existing files\n"
-        "  -p, --preserve-file-path  write output next to the source (overrides -o/-u)\n"
-        "  -x, --delete-source-file  delete the source file after a successful decode\n"
-        "  -v, --verbose             print a report for every processed file\n"
-        "  -h, --help                show this message\n";
+        "  -o, --output <file>                 single-output path (extension picks format)\n"
+        "  -u, --output-dir <dir>              directory for batch outputs\n"
+        "  -O, --overwrite                     overwrite existing files\n"
+        "  -p, --preserve-file-path            write output next to the source (overrides -o/-u)\n"
+        "  -x, --delete-source-file            delete the source file after a successful decode\n"
+        "  -v, --verbose                       print a report for every processed file\n"
+        "  -h, --help                          show this message\n";
 }
 
 void print_inspect_help() {
@@ -118,26 +140,26 @@ void print_inspect_help() {
         "gstextconv inspect [options]\n"
         "\n"
         "Inputs (at least one required):\n"
-        "  -f, --file <path>         single GS2D/.ast file\n"
-        "  -b, --batch <path>        add another .ast (repeatable)\n"
-        "  -d, --dir <path>          every .ast in a folder\n"
-        "  -r, --recursive           walk --dir recursively\n"
+        "  -f, --file <path>                   single GS2D/.ast file\n"
+        "  -b, --batch <path>                  add another .ast (repeatable)\n"
+        "  -d, --dir <path>                    every .ast in a folder\n"
+        "  -r, --recursive                     walk --dir recursively\n"
         "\n"
         "Field selectors (repeatable; default is --all):\n"
-        "  -m, --num-mipmaps         mipmap count\n"
-        "  -l, --num-layers          layer count\n"
-        "  -c, --compression         compression format (astc_NxM or uncompressed)\n"
-        "  -s, --size                width / height of the base mip\n"
-        "      --ideal-origin        ideal origin recorded in the container\n"
-        "      --color-space         color space (srgb/linear/alpha)\n"
-        "  -n, --channels            number of channels\n"
-        "  -a, --all                 print every available field (default)\n"
+        "  -m, --num-mipmaps                   mipmap count\n"
+        "  -l, --num-layers                    layer count\n"
+        "  -c, --compression                   compression format (astc_NxM or uncompressed)\n"
+        "  -s, --size                          width / height of the base mip\n"
+        "  -i, --ideal-origin                  ideal origin recorded in the container\n"
+        "      --color-space                   color space (srgb/linear/alpha)\n"
+        "  -n, --channels                      number of channels\n"
+        "  -a, --all                           print every available field (default)\n"
         "\n"
         "Output:\n"
-        "  -o, --output <path>       JSON file (single input) or output directory\n"
-        "                            (multiple inputs, one .json per input)\n"
-        "  -v, --verbose             print a report for every processed file\n"
-        "  -h, --help                show this message\n"
+        "  -o, --output <path>                 JSON file (single input) or output directory\n"
+        "                                      (multiple inputs, one .json per input)\n"
+        "  -v, --verbose                       print a report for every processed file\n"
+        "  -h, --help                          show this message\n"
         "\n"
         "With no --output the result is printed to stdout as a JSON array.\n";
 }
@@ -281,7 +303,9 @@ OutputFormat parse_output_format(std::string_view s) {
     if (s == "png")       return OutputFormat::PNG;
     if (s == "jpg" || s == "jpeg") return OutputFormat::JPG;
     if (s == "astc")      return OutputFormat::ASTC;
-    if (s == "raw-rgba" || s == "raw" || s == "rgba") return OutputFormat::RawRGBA;
+    if (s == "raw-rgba" || s == "raw" || s == "rgba" || s == "raw-rgb") {
+        return OutputFormat::RawRGBA;
+    }
     throw Error(Error::Code::UnsupportedFormat, "unknown output format");
 }
 
@@ -293,6 +317,26 @@ OutputFormat output_format_from_ext(const fs::path& p) {
     if (ext == ".astc") return OutputFormat::ASTC;
     if (ext == ".bin" || ext == ".raw") return OutputFormat::RawRGBA;
     throw Error(Error::Code::UnsupportedFormat, "cannot infer output format: " + ext);
+}
+
+std::string output_format_ext(OutputFormat f) {
+    switch (f) {
+        case OutputFormat::PNG:     return ".png";
+        case OutputFormat::JPG:     return ".jpg";
+        case OutputFormat::ASTC:    return ".astc";
+        case OutputFormat::RawRGBA: return ".bin";
+    }
+    return ".png";
+}
+
+std::string output_format_name(OutputFormat f) {
+    switch (f) {
+        case OutputFormat::PNG:     return "png";
+        case OutputFormat::JPG:     return "jpg";
+        case OutputFormat::ASTC:    return "astc";
+        case OutputFormat::RawRGBA: return "raw-rgba";
+    }
+    return "png";
 }
 
 BlockSize parse_block_size(std::string_view s) {
@@ -316,6 +360,18 @@ ColorSpace parse_color_space(std::string_view s) {
     throw Error(Error::Code::UnsupportedFormat, "color-space");
 }
 
+ColorFormat parse_color_format(std::string_view s) {
+    if (s == "r8")       return ColorFormat::R8;
+    if (s == "rg16")     return ColorFormat::RG16;
+    if (s == "rgb24")    return ColorFormat::RGB24;
+    if (s == "bgr24")    return ColorFormat::BGR24;
+    if (s == "rgba32")   return ColorFormat::RGBA32;
+    if (s == "bgra32")   return ColorFormat::BGRA32;
+    if (s == "rgba64f")  return ColorFormat::RGBA64F;
+    if (s == "rgba128f") return ColorFormat::RGBA128F;
+    throw Error(Error::Code::UnsupportedFormat, "color-format: " + std::string(s));
+}
+
 TargetGame parse_target_game(std::string_view s) {
     if (s == "fs20") return TargetGame::FS20;
     if (s == "fs23") return TargetGame::FS23;
@@ -323,8 +379,31 @@ TargetGame parse_target_game(std::string_view s) {
     throw Error(Error::Code::UnsupportedFormat, "target-game");
 }
 
+NormalMapFormat parse_normal_map_format(std::string_view s) {
+    if (s == "rg")  return NormalMapFormat::RG;
+    if (s == "rgb") return NormalMapFormat::RGB;
+    throw Error(Error::Code::UnsupportedFormat, "normal-map-format");
+}
+
+// Parse a list of channel letters separated by commas or a contiguous string
+// (e.g. "r,g,b,a" or "rgba"). Stores up to 4 chars; pads missing slots with the
+// previous RGBA default.
+std::array<char, 4> parse_channel_list(std::string_view s,
+                                       std::array<char, 4> def = {'r', 'g', 'b', 'a'}) {
+    std::array<char, 4> out = def;
+    std::size_t i = 0;
+    for (std::size_t k = 0; k < s.size() && i < out.size(); ++k) {
+        char c = static_cast<char>(std::tolower(static_cast<unsigned char>(s[k])));
+        if (c == ',' || c == ' ' || c == ';') continue;
+        out[i++] = c;
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
-// Tiny argument parser (supports short/long flags and value-less switches)
+// Tiny argument parser (supports short/long flags and value-less switches).
+// Each subcommand passes its own set of value-less flag names so short-flag
+// collisions between subcommands don't break value-taking flags.
 // ---------------------------------------------------------------------------
 
 struct Args {
@@ -356,30 +435,15 @@ struct Args {
     }
 };
 
-/// Set of flag names that never take a value. `-` or `--` prefix stripped.
-const std::unordered_set<std::string>& value_less_flags() {
-    static const std::unordered_set<std::string> s = {
-        "r", "recursive", "O", "overwrite", "h", "help",
-        "v", "version", "l", "license", "i", "info",
-        "g", "real-origin",
-        "p", "preserve-file-path",
-        "x", "delete-source-file",
-        // inspect selectors
-        "m", "num-mipmaps", "num-layers", "c", "compression",
-        "s", "size", "ideal-origin", "color-space",
-        "n", "channels", "a", "all",
-    };
-    return s;
-}
-
-Args parse_args(int argc, char** argv, int start) {
+Args parse_args(int argc, char** argv, int start,
+                const std::unordered_set<std::string>& flag_names) {
     Args out;
     for (int i = start; i < argc; ++i) {
         std::string a = argv[i];
         if (a.size() >= 2 && a[0] == '-') {
             std::string name = a[1] == '-' ? a.substr(2) : a.substr(1);
             std::string value;
-            const bool is_flag = value_less_flags().count(name) > 0;
+            const bool is_flag = flag_names.count(name) > 0;
             if (!is_flag && i + 1 < argc && argv[i + 1][0] != '-') {
                 value = argv[++i];
             }
@@ -389,6 +453,42 @@ Args parse_args(int argc, char** argv, int start) {
         }
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// Per-subcommand value-less flag sets
+// ---------------------------------------------------------------------------
+
+const std::unordered_set<std::string>& encoder_flags() {
+    static const std::unordered_set<std::string> s = {
+        "r", "recursive", "O", "overwrite", "h", "help",
+        "v", "verbose", "p", "preserve-file-path",
+        "x", "delete-source-file", "a", "raw-rgba",
+    };
+    return s;
+}
+
+const std::unordered_set<std::string>& decoder_flags() {
+    static const std::unordered_set<std::string> s = {
+        "r", "recursive", "O", "overwrite", "h", "help",
+        "v", "verbose", "p", "preserve-file-path",
+        "x", "delete-source-file",
+        "g", "real-origin",
+        "m", "all-mips",
+        "l", "all-layers",
+    };
+    return s;
+}
+
+const std::unordered_set<std::string>& inspect_flags() {
+    static const std::unordered_set<std::string> s = {
+        "r", "recursive", "h", "help", "v", "verbose",
+        "m", "num-mipmaps", "l", "num-layers",
+        "c", "compression", "s", "size",
+        "i", "ideal-origin", "color-space",
+        "n", "channels", "a", "all",
+    };
+    return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -416,11 +516,19 @@ void collect_from_dir(std::vector<fs::path>& out, const fs::path& root,
 
 std::vector<fs::path> collect_inputs(
     const Args& args,
-    std::initializer_list<std::string_view> dir_extensions) {
+    std::initializer_list<std::string_view> dir_extensions,
+    bool use_positional = true,
+    std::size_t positional_limit = std::string_view::npos) {
     std::vector<fs::path> inputs;
     if (auto f = args.get({"f", "file"})) inputs.emplace_back(*f);
     for (auto& b : args.getall({"b", "batch"})) inputs.emplace_back(b);
-    for (const auto& p : args.positional) inputs.emplace_back(p);
+    if (use_positional) {
+        for (std::size_t i = 0;
+             i < args.positional.size() && i < positional_limit;
+             ++i) {
+            inputs.emplace_back(args.positional[i]);
+        }
+    }
     if (auto d = args.get({"d", "dir"})) {
         collect_from_dir(inputs, *d, args.has({"r", "recursive"}), dir_extensions);
     }
@@ -428,23 +536,72 @@ std::vector<fs::path> collect_inputs(
 }
 
 // ---------------------------------------------------------------------------
+// Filename pattern expansion (decoder --pattern)
+// ---------------------------------------------------------------------------
+
+std::string expand_pattern(std::string_view pattern,
+                           const fs::path& source,
+                           int mip_index,
+                           int layer_index,
+                           OutputFormat fmt) {
+    const std::string filename = source.stem().string();
+    const std::string format   = output_format_name(fmt);
+    std::string out;
+    out.reserve(pattern.size() + 16);
+    for (std::size_t i = 0; i < pattern.size(); ++i) {
+        if (pattern[i] == '{') {
+            auto end = pattern.find('}', i);
+            if (end == std::string_view::npos) { out.push_back(pattern[i]); continue; }
+            auto key = pattern.substr(i + 1, end - i - 1);
+            if      (key == "filename")   out += filename;
+            else if (key == "mipIndex")   out += std::to_string(mip_index);
+            else if (key == "layerIndex") out += std::to_string(layer_index);
+            else if (key == "format")     out += format;
+            else {
+                out.append(pattern.begin() + static_cast<std::ptrdiff_t>(i),
+                           pattern.begin() + static_cast<std::ptrdiff_t>(end + 1));
+            }
+            i = end;
+        } else {
+            out.push_back(pattern[i]);
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Encoder command
 // ---------------------------------------------------------------------------
 
-int run_encoder(const Args& args) {
+int run_encoder(int argc, char** argv, int start) {
+    auto args = parse_args(argc, argv, start, encoder_flags());
     if (args.has({"h", "help"})) { print_encoder_help(); return 0; }
 
     EncodeOptions opts;
+    const bool raw_inputs   = args.has({"a", "raw-rgba"});
+    const int raw_width     = args.get({"raw-width"})  ? std::stoi(*args.get({"raw-width"}))  : 0;
+    const int raw_height    = args.get({"raw-height"}) ? std::stoi(*args.get({"raw-height"})) : 0;
+    ColorFormat raw_fmt     = ColorFormat::RGBA32;
+    if (auto rf = args.get({"raw-format"})) raw_fmt = parse_color_format(*rf);
+
     auto inputs = collect_inputs(args, {".png", ".jpg", ".jpeg"});
     if (inputs.empty()) {
         throw Error(Error::Code::InvalidFile, "encoder: no inputs provided");
     }
 
     if (auto g = args.get({"g", "target-game"})) opts.target_game = parse_target_game(*g);
-    if (auto m = args.get({"mipmaps"}))          opts.mipmaps = std::stoi(*m);
-    if (auto b = args.get({"block-size"}))       opts.block_size = parse_block_size(*b);
+    if (auto m = args.get({"m", "num-mipmaps", "mipmaps"})) {
+        if (*m == "max" || *m == "auto") {
+            opts.mipmaps = -1;
+        } else {
+            opts.mipmaps = std::stoi(*m);
+            if (opts.mipmaps < 0) opts.mipmaps = -1;
+        }
+    }
+    if (auto b = args.get({"k", "block-size"})) opts.block_size = parse_block_size(*b);
     if (auto q = args.get({"q", "quality"}))     opts.quality = parse_quality(*q);
     if (auto s = args.get({"s", "color-space"})) opts.color_space = parse_color_space(*s);
+    if (auto c = args.get({"c", "color-format"})) opts.color_format = parse_color_format(*c);
     if (auto w = args.get({"w", "resize"})) {
         auto sep = w->find('x');
         if (sep != std::string::npos) {
@@ -457,8 +614,15 @@ int run_encoder(const Args& args) {
                                               : TextureType::TwoD;
     }
     if (auto n = args.get({"n", "ideal-origin"})) {
-        opts.ideal_origin = (*n == "bottomLeft") ? Origin::BottomLeft
-                                                 : Origin::TopLeft;
+        opts.ideal_origin = (*n == "bottomLeft" || *n == "bottom-left")
+                                ? Origin::BottomLeft
+                                : Origin::TopLeft;
+    }
+    if (auto rc = args.get({"rc", "roughness-channel"})) {
+        opts.roughness_channel = parse_channel_list(*rc, opts.roughness_channel);
+    }
+    if (auto nm = args.get({"nmp", "normal-map-format"})) {
+        opts.normal_map_format = parse_normal_map_format(*nm);
     }
 
     const fs::path output_file = args.get({"o", "output"}).value_or("");
@@ -468,11 +632,23 @@ int run_encoder(const Args& args) {
     const bool delete_source   = args.has({"x", "delete-source-file"});
     const bool verbose         = args.has({"v", "verbose"});
 
+    auto load_input = [&](const fs::path& in) -> Image {
+        auto bytes = read_file(in);
+        if (raw_inputs) {
+            if (raw_width <= 0 || raw_height <= 0) {
+                throw Error(Error::Code::UnsupportedFormat,
+                            "--raw-rgba requires --raw-width and --raw-height");
+            }
+            return load_source_image(bytes.data(), bytes.size(),
+                                     raw_width, raw_height, raw_fmt);
+        }
+        return load_source_image(bytes.data(), bytes.size());
+    };
+
     if (!preserve_path && inputs.size() == 1 && !output_file.empty()) {
         const auto& in = inputs.front();
         VerboseClock clock;
-        auto bytes = read_file(in);
-        auto src = load_source_image(bytes.data(), bytes.size());
+        auto src = load_input(in);
         auto enc = encode(src, opts);
         if (!overwrite && fs::exists(output_file)) {
             throw Error(Error::Code::ConversionFailed,
@@ -508,8 +684,7 @@ int run_encoder(const Args& args) {
             }
             continue;
         }
-        auto bytes = read_file(in);
-        auto src = load_source_image(bytes.data(), bytes.size());
+        auto src = load_input(in);
         auto enc = encode(src, opts);
         write_file(out, enc);
         if (delete_source && in != out && fs::exists(in)) fs::remove(in);
@@ -525,70 +700,157 @@ int run_encoder(const Args& args) {
 // Decoder command
 // ---------------------------------------------------------------------------
 
-int run_decoder(const Args& args) {
+int run_decoder(int argc, char** argv, int start) {
+    auto args = parse_args(argc, argv, start, decoder_flags());
     if (args.has({"h", "help"})) { print_decoder_help(); return 0; }
 
-    auto inputs = collect_inputs(args, {".ast", ".gs2d"});
+    // Decoder supports `<input> <output>` as bare positional arguments.
+    // Reserve the last positional as the output path when 2+ positionals
+    // are present AND no -o/--output was given.
+    fs::path pos_output;
+    std::size_t positional_input_count = args.positional.size();
+    const bool has_explicit_output =
+        args.get({"o", "output"}).has_value() ||
+        args.get({"u", "output-dir"}).has_value();
+    if (!has_explicit_output && args.positional.size() >= 2) {
+        pos_output = args.positional.back();
+        positional_input_count = args.positional.size() - 1;
+    }
+
+    auto inputs = collect_inputs(args, {".ast", ".gs2d"},
+                                 /*use_positional=*/true,
+                                 positional_input_count);
     if (inputs.empty()) throw Error(Error::Code::InvalidFile, "decoder: no inputs");
 
-    const fs::path output_file = args.get({"o", "output"}).value_or("");
+    fs::path output_file = args.get({"o", "output"}).value_or("");
+    if (output_file.empty() && !pos_output.empty()) output_file = pos_output;
     const fs::path output_dir  = args.get({"u", "output-dir"}).value_or("");
     const bool overwrite       = args.has({"O", "overwrite"});
     const bool undo_flip       = !args.has({"g", "real-origin"});
+    const bool all_mips        = args.has({"m", "all-mips"});
+    const bool all_layers      = args.has({"l", "all-layers"});
+    const std::string pattern  = args.get({"pattern"}).value_or(
+        "{filename}-{mipIndex}-{layerIndex}.{format}");
 
     DecodeWriteOptions dopts;
     dopts.undo_flip = undo_flip;
     if (auto c = args.get({"c", "channels"})) {
-        std::size_t i = 0;
+        auto parsed = parse_channel_list(*c, dopts.channels);
+        dopts.channels = parsed;
+        // Fill trailing slots that the user did not specify with '\0' so the
+        // writer emits the right channel count.
+        std::size_t written = 0;
         for (char ch : *c) {
-            if (i >= dopts.channels.size()) break;
-            dopts.channels[i++] = ch;
+            if (ch == ',' || ch == ' ' || ch == ';') continue;
+            ++written;
         }
-        for (; i < dopts.channels.size(); ++i) dopts.channels[i] = '\0';
+        for (std::size_t i = written; i < dopts.channels.size(); ++i) {
+            dopts.channels[i] = '\0';
+        }
     }
-    if (auto m = args.get({"i", "mip-index"})) dopts.mip_index = std::stoi(*m);
-    if (auto l = args.get({"L", "layer-index"})) dopts.layer_index = std::stoi(*l);
+    const int fixed_mip   = args.get({"i", "mip-index"})   ? std::stoi(*args.get({"i", "mip-index"}))   : 0;
+    const int fixed_layer = args.get({"L", "layer-index"}) ? std::stoi(*args.get({"L", "layer-index"})) : 0;
+    dopts.mip_index   = fixed_mip;
+    dopts.layer_index = fixed_layer;
+
+    std::optional<OutputFormat> explicit_format;
+    if (auto f = args.get({"format"})) explicit_format = parse_output_format(*f);
 
     const bool preserve_path = args.has({"p", "preserve-file-path"});
     const bool delete_source = args.has({"x", "delete-source-file"});
     const bool verbose       = args.has({"v", "verbose"});
 
+    auto resolve_format = [&](const fs::path& out) -> OutputFormat {
+        if (explicit_format) return *explicit_format;
+        try { return output_format_from_ext(out); } catch (...) {}
+        return OutputFormat::PNG;
+    };
+
+    auto pattern_output = [&](const fs::path& in, int mip_i, int layer_i,
+                              OutputFormat fmt) -> fs::path {
+        fs::path base;
+        if (preserve_path) base = in.parent_path();
+        else if (!output_dir.empty()) base = output_dir;
+        else if (!output_file.empty() && fs::is_directory(output_file)) base = output_file;
+        else base = in.parent_path();
+        return base / expand_pattern(pattern, in, mip_i, layer_i, fmt);
+    };
+
     std::size_t index = 0;
     for (const auto& in : inputs) {
         ++index;
         VerboseClock clock;
-        fs::path out;
-        if (preserve_path) {
-            out = in;
-            out.replace_extension(".png");
-            dopts.format = OutputFormat::PNG;
-        } else if (inputs.size() == 1 && !output_file.empty()) {
-            out = output_file;
-            try { dopts.format = output_format_from_ext(out); } catch (...) {}
-        } else if (!output_dir.empty()) {
-            out = output_dir / (in.stem().string() + ".png");
-            dopts.format = OutputFormat::PNG;
-        } else {
-            out = in;
-            out.replace_extension(".png");
-            dopts.format = OutputFormat::PNG;
-        }
-        if (!overwrite && fs::exists(out)) {
-            if (verbose) {
-                print_verbose_entry(index, in, out.generic_string(),
-                                    clock.elapsed_str(), "decoding", "skipped");
-            }
-            continue;
-        }
         auto bytes = read_file(in);
         auto img = decode(bytes.data(), bytes.size());
-        auto blob = write_image(img, dopts);
-        write_file(out, blob);
-        if (delete_source && in != out && fs::exists(in)) fs::remove(in);
-        if (verbose) {
-            print_verbose_entry(index, in, out.generic_string(),
-                                clock.elapsed_str(), "decoding", "success");
+
+        // Determine which mips/layers to emit.
+        std::vector<int> mip_indices;
+        std::vector<int> layer_indices;
+        if (all_mips) {
+            const int n = std::max(1, img.num_mipmaps);
+            for (int i = 0; i < n; ++i) mip_indices.push_back(i);
+        } else {
+            mip_indices.push_back(fixed_mip);
         }
+        if (all_layers) {
+            const int n = std::max(1, img.num_layers);
+            for (int i = 0; i < n; ++i) layer_indices.push_back(i);
+        } else {
+            layer_indices.push_back(fixed_layer);
+        }
+
+        const bool multi_out =
+            mip_indices.size() > 1 || layer_indices.size() > 1;
+        bool any_written = false;
+        for (int layer_i : layer_indices) {
+            for (int mip_i : mip_indices) {
+                fs::path out;
+                OutputFormat fmt;
+                if (multi_out) {
+                    fmt = explicit_format.value_or(OutputFormat::PNG);
+                    out = pattern_output(in, mip_i, layer_i, fmt);
+                } else if (preserve_path) {
+                    out = in;
+                    fmt = explicit_format.value_or(OutputFormat::PNG);
+                    out.replace_extension(output_format_ext(fmt));
+                } else if (inputs.size() == 1 && !output_file.empty() &&
+                           !(fs::exists(output_file) && fs::is_directory(output_file))) {
+                    out = output_file;
+                    fmt = resolve_format(out);
+                } else if (!output_dir.empty() ||
+                           (!output_file.empty() && fs::exists(output_file) &&
+                            fs::is_directory(output_file))) {
+                    fmt = explicit_format.value_or(OutputFormat::PNG);
+                    fs::path base = !output_dir.empty() ? output_dir : output_file;
+                    out = base / (in.stem().string() + output_format_ext(fmt));
+                } else {
+                    out = in;
+                    fmt = explicit_format.value_or(OutputFormat::PNG);
+                    out.replace_extension(output_format_ext(fmt));
+                }
+                dopts.format      = fmt;
+                dopts.mip_index   = mip_i;
+                dopts.layer_index = layer_i;
+
+                if (!overwrite && fs::exists(out)) {
+                    if (verbose) {
+                        print_verbose_entry(index, in, out.generic_string(),
+                                            clock.elapsed_str(), "decoding",
+                                            "skipped");
+                    }
+                    continue;
+                }
+                auto blob = write_image(img, dopts);
+                write_file(out, blob);
+                any_written = true;
+                if (verbose) {
+                    print_verbose_entry(index, in, out.generic_string(),
+                                        clock.elapsed_str(), "decoding",
+                                        "success");
+                }
+            }
+        }
+        if (delete_source && any_written && fs::exists(in)) fs::remove(in);
     }
     return 0;
 }
@@ -741,7 +1003,8 @@ std::string build_inspect_json(const fs::path& file, const Image& img,
     return os.str();
 }
 
-int run_inspect(const Args& args) {
+int run_inspect(int argc, char** argv, int start) {
+    auto args = parse_args(argc, argv, start, inspect_flags());
     if (args.has({"h", "help"})) { print_inspect_help(); return 0; }
 
     auto inputs = collect_inputs(args, {".ast", ".gs2d"});
@@ -753,7 +1016,7 @@ int run_inspect(const Args& args) {
     if (args.has({"l", "num-layers"}))   fields.num_layers   = true;
     if (args.has({"c", "compression"}))  fields.compression  = true;
     if (args.has({"s", "size"}))         fields.size         = true;
-    if (args.has({"ideal-origin"}))      fields.ideal_origin = true;
+    if (args.has({"i", "ideal-origin"})) fields.ideal_origin = true;
     if (args.has({"color-space"}))       fields.color_space  = true;
     if (args.has({"n", "channels"}))     fields.channels     = true;
     if (!fields.any()) fields.enable_all();
@@ -853,10 +1116,9 @@ int main(int argc, char** argv) {
         if (cmd == "-l" || cmd == "--license") { print_license();      return 0; }
         if (cmd == "-i" || cmd == "--info")    { print_info();         return 0; }
 
-        auto args = parse_args(argc, argv, 2);
-        if (cmd == "encoder") return run_encoder(args);
-        if (cmd == "decoder") return run_decoder(args);
-        if (cmd == "inspect") return run_inspect(args);
+        if (cmd == "encoder") return run_encoder(argc, argv, 2);
+        if (cmd == "decoder") return run_decoder(argc, argv, 2);
+        if (cmd == "inspect") return run_inspect(argc, argv, 2);
 
         std::cerr << "unknown command: " << cmd << "\n";
         print_main_help();

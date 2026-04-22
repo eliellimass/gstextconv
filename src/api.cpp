@@ -44,7 +44,13 @@ bool looks_like_astc(const std::uint8_t* d, std::size_t n) {
 }
 
 int resolve_num_mipmaps_request(int requested, int w, int h) {
-    if (requested <= 0) {
+    // Semantics (aligned with cli.md and the mipmaps field docs):
+    //   requested <  0  -> "max": build the full mip chain down to 1x1.
+    //   requested == 0  -> only the base mip level (no additional mipmaps).
+    //   requested >  0  -> `requested` additional mipmaps on top of the base,
+    //                      i.e. `requested + 1` total mip levels.
+    // The returned value is the TOTAL number of mip levels including the base.
+    if (requested < 0) {
         int levels = 1;
         int cw = w, ch = h;
         while ((cw > 1 || ch > 1) && levels < 16) {
@@ -54,7 +60,7 @@ int resolve_num_mipmaps_request(int requested, int w, int h) {
         }
         return levels;
     }
-    return std::min(requested, 16);
+    return std::min(requested + 1, 16);
 }
 
 std::uint32_t format_code_for_block(int bx, int by) {
